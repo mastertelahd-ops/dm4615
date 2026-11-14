@@ -1,11 +1,12 @@
 # Agente local Windows — DM4615
 
-Fundação inicial do agente. O projeto não altera banco de dados e não executa comandos de configuração na OLT.
+Fundação inicial do agente .NET 8. O projeto não altera banco de dados e não executa comandos de configuração na OLT.
 
 ## Configuração
 
-- .NET 8 SDK.
-- IP MGMT padrão documentado: `192.168.0.25` (confirme se esse é realmente o IP da OLT).
+- Windows 10/11 x64.
+- .NET 8 SDK para execução a partir do código.
+- IP MGMT padrão documentado: 192.168.0.25 (confirme se esse é realmente o IP da OLT).
 - SSH TCP/22.
 - Credenciais e fingerprint devem ser configurados somente no ambiente Windows.
 
@@ -22,19 +23,39 @@ $env:DM4615_AGENT_TOKEN = "GERE_UM_TOKEN_ALEATORIO_FORTE"
 
 Não salve valores reais em arquivos versionados, prints, tickets ou logs. A configuração definitiva deverá migrar para Windows Credential Manager/DPAPI.
 
-## Executar
+## Executar pelo código
 
 ```powershell
 dotnet restore .\src\agent\Dm4615.Agent.csproj
 dotnet run --project .\src\agent\Dm4615.Agent.csproj
 ```
 
-O agente escuta em `http://127.0.0.1:17861` apenas. Requisições exigem `X-Agent-Token`.
+A API escuta em http://127.0.0.1:17861. Os endpoints protegidos exigem X-Agent-Token. O health básico é público e não retorna dados sensíveis.
 
-Teste:
+## Empacotar para Windows
+
+Na raiz do repositório:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:17861/health -Headers @{ "X-Agent-Token" = $env:DM4615_AGENT_TOKEN }
+.\scripts\publish-agent-windows.ps1
+```
+
+Gera o executável portátil self-contained em artifacts/win-x64.
+
+Para gerar também o instalador, instale Inno Setup 6 e execute:
+
+```powershell
+.\scripts\publish-agent-windows.ps1 -BuildInstaller
+```
+
+O instalador é uma embalagem inicial do agente e da documentação; não configura VPN, não abre firewall e não instala serviço automático. O modo serviço será concluído após implementar armazenamento de segredos com DPAPI/Windows Credential Manager.
+
+Consulte docs/windows-agent-vpn.md para limitações e requisitos de VPN. Os artefatos binários são gerados localmente e não devem ser versionados.
+
+## Testes da API local
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:17861/health
 Invoke-RestMethod -Method Post http://127.0.0.1:17861/olt/connection-test -Headers @{ "X-Agent-Token" = $env:DM4615_AGENT_TOKEN }
 ```
 
@@ -42,8 +63,6 @@ O endpoint de teste faz apenas o handshake SSH. Nenhum comando CLI é enviado. A
 
 ## Validação da CLI
 
-As consultas `show system` e `show onu-interface-count` já foram observadas com sucesso no PuTTY. O agente ainda não executa esses comandos: a implementação do adaptador de leitura depende de tratamento correto do paginador `--More--`, do prompt e dos limites de saída.
-
-Registros e próxima coleta estão em `docs/device-cli-validation.md`. Ainda precisamos confirmar `show inventory`, `show alarm`, `show interface` e `show onu-global-count` no equipamento. Compartilhe a saída sem senhas ou outros segredos.
+As consultas reais compartilhadas pelo operador estão em docs/device-cli-validation.md. O agente ainda não executa comandos de leitura: o adaptador CLI depende de tratamento correto do paginador --More--, do prompt e dos limites de saída.
 
 Nenhuma operação de configuração, limpeza ou reboot será liberada nesta etapa.
