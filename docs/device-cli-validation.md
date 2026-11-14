@@ -189,3 +189,20 @@ Executar uma linha por vez no prompt:
 7. `show interface link ?` e, depois de observar a ajuda, executar apenas a forma de consulta indicada pela própria CLI.
 
 Esses exemplos são consultas propostas a partir dos completions, não comandos já validados. Se a CLI marcar erro ou sugerir outra sintaxe, interromper e compartilhar a saída; não tentar variantes de configuração.
+
+
+### Consulta da linha `ponIfEntry` — validação adicional
+
+Nova saída recebida:
+- `show onu ponIfEntry 101744641 ?` lista os campos `down-onus`, `interface-name`, `non-provisioned-onus`, `total-onus` e `up-onus`, além de `<cr>` e modificadores de saída.
+- A execução de `show onu ponIfEntry 101744641` sem indicar um campo retornou `syntax error: unknown argument`.
+
+Conclusão: o índice sozinho não é uma consulta completa. A ajuda indica que é necessário especificar um dos campos após o índice. A sintaxe exata de leitura ainda deve ser confirmada executando um campo por vez.
+
+Próximo teste sugerido no equipamento (somente leitura):
+
+```text
+show onu ponIfEntry 101744641 interface-name
+```
+
+Se funcionar, testar separadamente `total-onus`, `up-onus`, `down-onus` e `non-provisioned-onus` para o mesmo índice. Não concatenar comandos na mesma linha. Ainda não associar o índice `101744641` a uma PON específica até a resposta de `interface-name` ser observada.
