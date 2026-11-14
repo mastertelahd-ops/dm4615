@@ -25,11 +25,12 @@ npm run dev
 
 The .NET 8 Windows agent is developed on branch `feat/dm4615-windows-agent` and reviewed in PR #3. It is not production-ready, installed, or deployed.
 
-- SSH MGMT handshake with strict SHA-256 host-key verification.
-- Current local API listens only on 127.0.0.1:17861 and requires an agent token (except the basic health endpoint).
+- SSH MGMT handshake with strict SHA-256 host-key verification; no CLI commands run.
+- Current local API listens only on 127.0.0.1:17861 and requires an agent token (except basic health).
 - Windows self-contained portable build and Inno Setup installer definitions are included.
-- Remote panel access over VPN is planned but not enabled; no VPN interface listener or public port is opened.
-- No OLT CLI commands, configuration changes, database schema, migrations, or data are modified.
+- Recommended VPN: Tailscale. A read-only connectivity diagnostic is included.
+- Remote panel access is not enabled until application-level identity and authorization are implemented; do not expose the agent API with Tailscale Serve yet.
+- No OLT configuration, database schema, migrations, or data are modified.
 
-Build instructions: [docs/windows-agent-vpn.md](docs/windows-agent-vpn.md).
+Build and VPN instructions: [docs/windows-agent-vpn.md](docs/windows-agent-vpn.md).
 See also [docs/architecture.md](docs/architecture.md), [docs/device-cli-validation.md](docs/device-cli-validation.md), and [src/agent/README.md](src/agent/README.md).
