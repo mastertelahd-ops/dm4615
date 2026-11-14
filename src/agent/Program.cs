@@ -1,11 +1,11 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Renci.SshNet;
 using Renci.SshNet.Common;
-using Renci.SshNet.Connection;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService(options => options.ServiceName = "DM4615 Local Agent");
