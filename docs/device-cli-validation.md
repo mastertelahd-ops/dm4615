@@ -1,6 +1,6 @@
 # Validação da CLI — Datacom DM4615
 
-Este documento registra somente comandos e resultados efetivamente observados no acesso SSH/PuTTY compartilhado. Não generaliza sintaxe de outros modelos ou versões.
+Este documento registra somente comandos e resultados efetivamente observados no acesso SSH/PuTTY compartilhado. Não generaliza sintaxe de outros modelos ou versões. As medições são fotografias do momento da coleta, não garantias de estado atual.
 
 ## Ambiente observado
 
@@ -50,23 +50,56 @@ Trecho observado:
 | gpon-1/1/2 | 2 | 0 | 1 | 1 |
 | gpon-1/1/3 até gpon-1/1/16 | 0 | 0 | 0 | 0 |
 
+### `show onu-global-count`
+
+Executado com sucesso na coleta mais recente. Retorna contagem agregada de ONUs:
+
+| Total | Não provisionadas | UP | DOWN |
+|---:|---:|---:|---:|
+| 2 | 0 | 1 | 1 |
+
+Os valores agregados são coerentes com o total observado em `show onu-interface-count` na coleta anterior: duas ONUs, uma UP e uma DOWN.
+
+### `show alarm`
+
+Executado com sucesso. Resposta literal observada: `% No entries found.` Portanto, não havia entradas retornadas por essa consulta no instante da coleta. Isso não prova ausência de eventos históricos ou de outros tipos de alerta fora do escopo desse comando.
+
+### `show interface`
+
+Executado com sucesso. Retorna taxas L1/L2 e detalhes de estado/configuração para as interfaces Ethernet, além de tabelas de estado óptico dos transceptores GPON.
+
+**Taxas observadas na coleta:**
+- Todas as quatro interfaces Gigabit Ethernet (`1/1/1` a `1/1/4`) apresentaram `0.0bps` em L1 RX, L1 TX, L2 RX e L2 TX.
+- Todas as quatro interfaces 10 Gigabit Ethernet (`1/1/1` a `1/1/4`) apresentaram `0.0bps` nas mesmas quatro métricas.
+
+**Estado das interfaces Ethernet:**
+- `gigabit-ethernet-1/1/1`: administrativamente Enabled; negociação Enabled; link Up; velocidade/duplex `100Mfull`; MDIX Xover.
+- `gigabit-ethernet-1/1/2`, `1/1/3` e `1/1/4`: administrativamente Enabled, negociação Enabled e link Down.
+- `ten-gigabit-ethernet-1/1/1` a `1/1/4`: administrativamente Enabled, negociação Disabled, velocidade configurada 10G/full e link Down.
+- MTU exibida para essas interfaces: 16361. Descrições vazias.
+
+**Transceptores GPON:**
+- A tabela Rx-LOS lista 12 transceptores (portas `1/1/1`, `1/1/2`, `1/1/5`, `1/1/6`, `1/1/7`, `1/1/9`, `1/1/10`, `1/1/12`, `1/1/13`, `1/1/14`, `1/1/15` e `1/1/16`), todos com Rx-LOS exibido como `N/A`.
+- A tabela de diagnóstico apresenta temperatura, tensão, corrente, Tx-Power e Rx-Power. Rx-Power aparece como `N/A` em todas as portas listadas.
+- Leituras Tx-Power observadas: portas GPON 1/1/1, 1/1/2, 1/1/6, 1/1/7, 1/1/9, 1/1/10, 1/1/12, 1/1/13, 1/1/14, 1/1/15 e 1/1/16 entre 3.08 e 5.11 dBm; porta GPON 1/1/5 exibiu -10.31 dBm.
+- A porta GPON 1/1/5 também exibiu corrente de 72.2 mA, enquanto as demais leituras listadas ficaram aproximadamente entre 8.3 e 15.31 mA. Temperaturas observadas variaram de 41.09 a 48.91 °C e tensões de 3.25 a 3.40 V.
+
+A leitura da porta GPON 1/1/5 é discrepante em relação às demais portas na mesma captura e merece nova coleta/checagem física e comparação com limites do fabricante. Não concluir falha do módulo somente com essa amostra. Como Rx-Power e Rx-LOS foram apresentados como `N/A`, o agente não deve convertê-los em zero nem inferir nível óptico recebido.
+
 ## Comandos ainda não confirmados
 
-- `show onu-global-count`: o texto capturado contém `how onu-global-count` (sem o primeiro caractere) e retornou erro/incomplete path. Não considerar confirmado.
-- `show alarm` e `show interface`: ainda não há saídas válidas compartilhadas neste registro.
 - Não há comandos de provisionamento ou configuração autorizados/validados.
+- Não foi validado ainda um comando para listar ONUs individualmente, consultar potência óptica por ONU ou executar ações sobre ONUs.
 
-## Próxima coleta no PuTTY
+## Próximas validações recomendadas
 
-Executar separadamente, no prompt `FireNet-OLT#`, sem alterar configuração:
+1. Repetir `show interface` em outro momento para confirmar se taxas e estados permanecem iguais.
+2. Investigar a leitura discrepante do transceptor GPON `1/1/5` por nova coleta e documentação/limites do fabricante, sem executar comandos de escrita.
+3. Identificar comandos de consulta por ONU e por interface GPON usando ajuda da CLI; validar cada comando no equipamento antes de automatizar.
+4. Confirmar se `192.168.0.25` é o IP da OLT e obter fingerprint SSH por canal confiável.
+5. Validar sincronismo de relógio (SNTP) antes de depender de timestamps da OLT.
 
-```text
-show alarm
-show interface
-show onu-global-count
-```
-
-Se algum comando apresentar `--More--`, pressione `!` para exibir o restante, conforme a ajuda do paginador capturada, ou copie todas as páginas. Para conferir sintaxe sem executar a consulta, use `show <subcomando> ?`.
+Se algum comando apresentar `--More--`, pressione `!` para exibir o restante, conforme a ajuda do paginador capturada, ou copie todas as páginas. Para conferir sintaxe sem executar a consulta, use a ajuda da CLI observada no equipamento.
 
 ## Regras de implementação
 
@@ -74,4 +107,5 @@ Se algum comando apresentar `--More--`, pressione `!` para exibir o restante, co
 2. Começar com consultas de leitura.
 3. Não liberar comandos `config`, `set`, `no`, `commit`, `reboot`, `clear` ou equivalentes no agente.
 4. Não tratar texto da saída como dados confiáveis sem validação/parsing.
-5. Nenhuma senha, token ou fingerprint real deve ser versionado.
+5. Preservar valores `N/A` como indisponíveis, nunca como zero.
+6. Nenhuma senha, token ou fingerprint real deve ser versionado.
