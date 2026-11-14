@@ -19,6 +19,25 @@ Executado com sucesso. Retorna relógio, uptime, motivo do reboot, chassis/slot,
 
 A saída é paginada pelo utilitário `more`, com marcador `--More--`. A automação SSH deverá tratar paginação explicitamente e limitar o tamanho/tempo de saída.
 
+### `show inventory`
+
+Executado com sucesso. Identifica o equipamento como DM4615 e a placa principal como `16GPON+4GT+4XS`.
+
+Dados observados:
+- Chassis/slot: `1/1`.
+- Part number da placa: `800.5198.51`; revisão de produto: `51`.
+- Número de série da placa: `5020503`.
+- Base MAC: `70:cd:91:07:b2:27`.
+- Interfaces Gigabit Ethernet: `1/1/1` a `1/1/4`, tipo Electrical.
+- Interfaces GPON: `1/1/1` a `1/1/16`.
+- Transceptores GPON indicados como presentes: `1/1/1`, `1/1/2`, `1/1/5`, `1/1/6`, `1/1/7`, `1/1/9`, `1/1/10`, `1/1/12`, `1/1/13`, `1/1/14`, `1/1/15` e `1/1/16`.
+- Transceptores GPON indicados como ausentes: `1/1/3`, `1/1/4`, `1/1/8` e `1/1/11`.
+- Interfaces 10 Gigabit Ethernet: `1/1/1` a `1/1/4`; transceptores indicados como ausentes na captura.
+- Ventoinha: modelo `DM4610-FAN`; a saída informa que essa placa não possui inventário.
+- Fonte PSU1: modelo `PSU-125-DC`, part number `800.5188.02`.
+
+A captura contém repetições de trechos de inventário associadas à paginação do terminal. Os itens acima foram consolidados como inventário, não como múltiplas placas ou múltiplos equipamentos.
+
 ### `show onu-interface-count`
 
 Executado com sucesso. Retorna tabela com índice, nome da interface, total de ONUs, ONUs provisionadas, ONUs UP e ONUs DOWN.
@@ -34,7 +53,7 @@ Trecho observado:
 ## Comandos ainda não confirmados
 
 - `show onu-global-count`: o texto capturado contém `how onu-global-count` (sem o primeiro caractere) e retornou erro/incomplete path. Não considerar confirmado.
-- Inventário, alarmes e interfaces: ainda não há saídas válidas compartilhadas neste registro.
+- `show alarm` e `show interface`: ainda não há saídas válidas compartilhadas neste registro.
 - Não há comandos de provisionamento ou configuração autorizados/validados.
 
 ## Próxima coleta no PuTTY
@@ -42,7 +61,6 @@ Trecho observado:
 Executar separadamente, no prompt `FireNet-OLT#`, sem alterar configuração:
 
 ```text
-show inventory
 show alarm
 show interface
 show onu-global-count
