@@ -140,3 +140,52 @@ Se algum comando apresentar `--More--`, pressione `!` para exibir o restante, co
 4. Não tratar texto da saída como dados confiáveis sem validação/parsing.
 5. Preservar valores `N/A` como indisponíveis, nunca como zero.
 6. Nenhuma senha, token ou fingerprint real deve ser versionado.
+
+
+### Ajuda e consultas adicionais — `show onu ponIfEntry` e interfaces
+
+Nova coleta compartilhada pelo operador:
+
+#### `show onu ponIfEntry ?`
+
+A CLI exibiu índices de tabela de `101744641` a `101744656`, todos descritos como `Table index`. Também apresentou completions de campos:
+- `interface-name`: descrição da interface.
+- `total-onus`: total de ONUs na PON, em todos os estados.
+- `up-onus`: ONUs provisionadas e UP.
+- `down-onus`: ONUs provisionadas e DOWN.
+- `non-provisioned-onus`: ONUs não provisionadas na PON.
+
+Isso confirma a existência de uma tabela indexada para contagem por PON e os nomes dos campos sugeridos pela ajuda. Ainda não confirma a sintaxe de consulta nem o mapeamento entre cada índice e a interface física. Não implementar parser nem associar índices a portas antes de coletar respostas individuais.
+
+A tentativa de inserir `show interface link` após `show onu ponIfEntry` na mesma linha foi rejeitada como argumento inválido/sintaxe desconhecida. Os comandos devem ser executados separadamente no prompt.
+
+#### `show interface utilization ?` e `show interface utilization`
+
+Ajuda exibiu seletores para:
+- `gigabit-ethernet-1/1/1` a `gigabit-ethernet-1/1/4`;
+- `ten-gigabit-ethernet-1/1/1` a `ten-gigabit-ethernet-1/1/4`;
+- seletores `l1` e `l2`;
+- execução sem argumento (`<cr>`).
+
+`show interface utilization` foi executado com sucesso e retornou colunas L1 RX, L1 TX, L2 RX e L2 TX para as oito interfaces Ethernet (4 GE e 4 10GE). Todas as taxas estavam em `0.0bps` nessa coleta. Tratar como amostra instantânea; o painel deve permitir novas coletas e não interpretar zero observado como ausência permanente de tráfego.
+
+#### `show interface description ?` e `show interface description`
+
+A ajuda listou famílias de interface (incluindo `gigabit-ethernet`, `ten-gigabit-ethernet`, além de famílias de maior velocidade). A execução sem argumento foi bem-sucedida e exibiu as quatro interfaces GE e as quatro 10GE, mas todas as descrições estavam vazias.
+
+#### `show interface link ?`
+
+A tentativa de pedir ajuda com `show interface link ?` foi enviada acidentalmente concatenada à consulta anterior e a CLI rejeitou a sintaxe. Portanto, a ajuda e a consulta `show interface link` permanecem não confirmadas.
+
+## Próximas consultas seguras sugeridas
+
+Executar uma linha por vez no prompt:
+1. `show onu ponIfEntry 101744641 interface-name`
+2. `show onu ponIfEntry 101744641 total-onus`
+3. `show onu ponIfEntry 101744641 up-onus`
+4. `show onu ponIfEntry 101744641 down-onus`
+5. `show onu ponIfEntry 101744641 non-provisioned-onus`
+6. Repetir para outros índices somente após confirmar que a forma acima é aceita e que cada resposta é apenas leitura.
+7. `show interface link ?` e, depois de observar a ajuda, executar apenas a forma de consulta indicada pela própria CLI.
+
+Esses exemplos são consultas propostas a partir dos completions, não comandos já validados. Se a CLI marcar erro ou sugerir outra sintaxe, interromper e compartilhar a saída; não tentar variantes de configuração.
