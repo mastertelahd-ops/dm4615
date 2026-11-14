@@ -21,14 +21,15 @@ npm i
 npm run dev
 ```
 
-## DM4615 Windows SSH agent (draft)
+## DM4615 Windows agent (draft)
 
-A Windows-local .NET 8 agent is being developed on branch `feat/dm4615-windows-agent`. It is not production-ready and is not installed or deployed.
+The .NET 8 Windows agent is developed on branch `feat/dm4615-windows-agent` and reviewed in PR #3. It is not production-ready, installed, or deployed.
 
-- Connects to the OLT through SSH on the MGMT network.
-- Initial endpoint performs SSH handshake only; no CLI commands or configuration changes.
-- Local API is restricted to loopback and protected by an agent token.
-- Database schema, migrations, and data are not modified.
-- Remote-panel connectivity and read/write CLI operations remain pending validation.
+- SSH MGMT handshake with strict SHA-256 host-key verification.
+- Current local API listens only on 127.0.0.1:17861 and requires an agent token (except the basic health endpoint).
+- Windows self-contained portable build and Inno Setup installer definitions are included.
+- Remote panel access over VPN is planned but not enabled; no VPN interface listener or public port is opened.
+- No OLT CLI commands, configuration changes, database schema, migrations, or data are modified.
 
-See [docs/architecture.md](docs/architecture.md), [docs/device-cli-validation.md](docs/device-cli-validation.md), and [src/agent/README.md](src/agent/README.md).
+Build instructions: [docs/windows-agent-vpn.md](docs/windows-agent-vpn.md).
+See also [docs/architecture.md](docs/architecture.md), [docs/device-cli-validation.md](docs/device-cli-validation.md), and [src/agent/README.md](src/agent/README.md).
