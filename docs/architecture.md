@@ -2,56 +2,59 @@
 
 ## Componentes
 
-1. **Painel web**: interface atual React/TanStack. Acesso local e remoto.
-2. **Agente Windows local**: processo/serviço instalado no computador da rede de gerência.
-3. **OLT Datacom DM4615**: conexão SSHv2 TCP/22 pela interface MGMT.
-4. **Canal remoto futuro**: conexão de saída HTTPS/WSS iniciada pelo agente para um backend autenticado. Não abrir portas de entrada no roteador nem publicar a porta SSH.
+1. **Painel web**: interface React/TanStack, com acesso local e remoto.
+2. **Agente Windows**: processo local responsável pela comunicação SSH com a OLT.
+3. **VPN privada**: transporte de rede entre painel remoto e host Windows; fornecedor ainda a definir.
+4. **OLT Datacom DM4615**: conexão SSHv2 TCP/22 pela interface MGMT.
 
-## Fluxo
+## Fluxo pretendido
 
 ```text
-Painel local ── HTTPS/localhost ──┐
-                                  ├── Agente Windows ── SSHv2/MGMT ── DM4615
-Painel remoto ── HTTPS/WSS ── API ─┘
-                         (canal de saída do agente)
+Painel local ── loopback seguro ── Agente Windows ── SSH/MGMT ── DM4615
+Painel remoto ── VPN privada ── HTTPS/TLS ── Agente Windows ── SSH/MGMT ── DM4615
 ```
 
-A ponte remota ainda não está implementada. Ela exige autenticação de dispositivo, associação do agente a uma conta/OLT, TLS, rotação/revogação de credenciais e autorização por função.
+## Estado de implementação
 
-## Escopo de gerenciamento completo
+- API local atual restrita a 127.0.0.1:17861.
+- Token local exigido nos endpoints protegidos.
+- Teste SSH verifica fingerprint SHA-256 e não executa comandos.
+- Scripts para publicação self-contained Windows x64 e definição de instalador Inno Setup adicionados.
+- Acesso remoto via VPN ainda não habilitado. Não vincular a API a 0.0.0.0, não abrir portas públicas e não criar regras de encaminhamento.
+- O fornecedor VPN e o IP privado do host Windows ainda precisam ser definidos.
+- Serviço Windows automático depende de armazenamento seguro de segredos via DPAPI/Windows Credential Manager.
+
+## Requisitos para habilitar acesso VPN
+
+1. Confirmar o produto VPN e a interface/endereço privado atribuídos ao host Windows.
+2. Vincular o listener remoto exclusivamente ao IP da interface VPN, validando que o IP pertence à interface esperada.
+3. Exigir HTTPS/TLS com certificado confiável e autenticação forte do dispositivo.
+4. Restringir firewall ao peer/sub-rede VPN autorizada.
+5. Implementar rotação e revogação de credenciais e auditoria.
+6. Manter o listener local separado do listener VPN.
+7. Nunca encaminhar SSH/22 da OLT nem a API do agente para a internet pública.
+
+## Escopo de gerenciamento
 
 - Inventário, versão, estado do sistema e alarmes.
 - Interfaces PON, ONUs, potência óptica, estado e contadores.
-- Provisionamento e alteração de parâmetros.
-- Reinicialização e operações de impacto.
+- Provisionamento e alteração de parâmetros, somente em fase posterior com autorização explícita.
 
-As consultas e operações serão mapeadas a partir da CLI/documentação oficial do firmware instalado. Não presumir sintaxe de comandos com base em outros modelos Datacom.
+As consultas serão mapeadas a partir da CLI/documentação oficial do firmware instalado. Não presumir sintaxe de outros modelos Datacom.
 
 ## Barreiras obrigatórias
 
 - SSH com verificação estrita de host key (fingerprint SHA-256 fixado).
 - Segredos fora do Git; nunca registrar senha, token ou conteúdo sensível.
-- API local vinculada exclusivamente a 127.0.0.1 e protegida por token.
+- API local vinculada exclusivamente a 127.0.0.1.
 - Lista explícita de comandos permitidos, parâmetros validados e bloqueio por padrão.
 - Operações de escrita desabilitadas até validação do comando, autorização RBAC, confirmação explícita, auditoria e plano de rollback.
 - Timeout, limite de saída e cancelamento de comandos.
-- Auditoria com usuário, ação, alvo, horário, resultado e identificador de correlação.
 - Nenhuma credencial SSH enviada ao navegador.
 
-## Preservação do projeto
+## Preservação e implantação
 
-- Não alterar schema, migrations, tabelas, dados, variáveis ou integração de banco existente.
+- Não alterar schema, migrations, tabelas, dados, variáveis ou integração de banco.
 - O agente inicial é independente do banco.
-- Não publicar, implantar ou instalar automaticamente.
-- Desenvolver em branch separada e revisar antes de abrir/mesclar PR.
-
-## Etapas de validação
-
-1. Confirmar IP MGMT, rota e porta TCP/22.
-2. Obter fingerprint SSH e validar a política de host key.
-3. Fazer handshake SSH sem executar comando.
-4. Capturar no PuTTY a saída de ajuda e comandos de leitura suportados.
-5. Implementar adaptador CLI específico para firmware e testar apenas leitura.
-6. Integrar painel local.
-7. Implementar canal remoto WSS com autenticação mútua de dispositivo.
-8. Liberar comandos de escrita por grupos, cada um com autorização, confirmação, auditoria e rollback.
+- Não publicar, implantar, instalar automaticamente nem mesclar PR nesta etapa.
+- Desenvolver na branch feat/dm4615-windows-agent e revisar antes de mesclar.
