@@ -1,10 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
 import {
-  Activity, AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Bell, Cable,
-  CheckCircle2, ChevronDown, CircleHelp, Command, Cpu, Gauge, LayoutDashboard,
-  Menu, MoreHorizontal, Network, Plus, Search, Server, Settings, ShieldCheck,
-  Signal, TerminalSquare, Wifi, X,
+  Activity, AlertTriangle, Bell, Cable, CircleHelp, Gauge, LayoutDashboard,
+  Menu, Network, Plus, Search, Server, Settings, ShieldCheck, Signal,
+  TerminalSquare, Wifi, X,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
