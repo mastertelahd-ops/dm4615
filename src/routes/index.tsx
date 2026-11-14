@@ -1,3 +1,5 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, Bell, Cable, CircleHelp, Gauge, LayoutDashboard,
   Menu, Network, Plus, Search, Server, Settings, ShieldCheck, Signal,
