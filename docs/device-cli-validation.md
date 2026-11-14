@@ -86,6 +86,37 @@ Executado com sucesso. Retorna taxas L1/L2 e detalhes de estado/configuração p
 
 A leitura da porta GPON 1/1/5 é discrepante em relação às demais portas na mesma captura e merece nova coleta/checagem física e comparação com limites do fabricante. Não concluir falha do módulo somente com essa amostra. Como Rx-Power e Rx-LOS foram apresentados como `N/A`, o agente não deve convertê-los em zero nem inferir nível óptico recebido.
 
+## Ajuda da CLI — árvore de comandos ONU e interface
+
+Ajuda solicitada no prompt, sem executar configuração:
+
+### `show onu ?`
+
+Completions exibidas:
+- `down-onus`: número de ONUs provisionadas e DOWN em todas as interfaces.
+- `non-provisioned-onus`: número de ONUs não provisionadas em todas as interfaces.
+- `ponIfEntry`: tabela de contagem de ONUs por interface PON.
+- `total-onus`: total de ONUs em todas as PONs, incluindo todos os estados.
+- `up-onus`: número de ONUs provisionadas e UP em todas as interfaces.
+
+Essas opções foram exibidas pela ajuda; exceto os comandos de contagem já registrados acima, ainda não foi compartilhada a execução individual de cada opção. A tabela `ponIfEntry` é uma candidata para detalhar contagens por PON, mas sua saída precisa ser coletada antes de implementar o parser.
+
+### `show gpon ?`
+
+Retornou erro de sintaxe (`% Invalid input detected at '^' marker.`). Portanto, `show gpon` não está confirmado como ramo válido da CLI nesse contexto.
+
+### `show interface ?`
+
+Completions exibidas:
+- `description`: descrição das interfaces.
+- `gigabit-ethernet`: informações de interfaces Gigabit Ethernet.
+- `gpon`: descrição da ajuda: “Configure a GPON interface”.
+- `link`: visão geral do estado das interfaces.
+- `ten-gigabit-ethernet`: informações das interfaces 10 Gigabit Ethernet.
+- `utilization`: estatísticas de utilização das interfaces.
+
+A palavra `gpon` aparece sob `show interface`, mas a própria descrição sugere contexto de configuração. Não executar esse ramo até confirmar a sintaxe e garantir que a ação é somente leitura. Preferir primeiro explorar `link`, `utilization` e `description` com ajuda `?`.
+
 ## Comandos ainda não confirmados
 
 - Não há comandos de provisionamento ou configuração autorizados/validados.
