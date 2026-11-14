@@ -81,7 +81,7 @@ app.MapPost("/olt/connection-test", async (IConfiguration configuration, Cancell
 
     var timeoutSeconds = int.TryParse(configuration["Olt:ConnectTimeoutSeconds"], out var t)
         ? Math.Clamp(t, 3, 30) : 8;
-    var connectionInfo = new ConnectionInfo(
+    var connectionInfo = new Renci.SshNet.ConnectionInfo(
         host, port, username, new PasswordAuthenticationMethod(username, password))
     {
         Timeout = TimeSpan.FromSeconds(timeoutSeconds)
