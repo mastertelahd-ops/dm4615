@@ -40,6 +40,10 @@ Invoke-RestMethod -Method Post http://127.0.0.1:17861/olt/connection-test -Heade
 
 O endpoint de teste faz apenas o handshake SSH. Nenhum comando CLI é enviado. A host key precisa corresponder ao fingerprint SHA-256 configurado; sem fingerprint, a conexão é recusada.
 
-## Próxima validação necessária
+## Validação da CLI
 
-No PuTTY, execute `?` e `show ?` (somente se o primeiro comando indicar suporte) e compartilhe a saída sem senhas. Isso permite mapear a CLI real do firmware antes de implementar operações de leitura/escrita.
+As consultas `show system` e `show onu-interface-count` já foram observadas com sucesso no PuTTY. O agente ainda não executa esses comandos: a implementação do adaptador de leitura depende de tratamento correto do paginador `--More--`, do prompt e dos limites de saída.
+
+Registros e próxima coleta estão em `docs/device-cli-validation.md`. Ainda precisamos confirmar `show inventory`, `show alarm`, `show interface` e `show onu-global-count` no equipamento. Compartilhe a saída sem senhas ou outros segredos.
+
+Nenhuma operação de configuração, limpeza ou reboot será liberada nesta etapa.
