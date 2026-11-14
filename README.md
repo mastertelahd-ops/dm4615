@@ -8,7 +8,7 @@ Continue developing this project in the [Lovable editor](https://lovable.dev/pro
 
 - **Ship faster**: describe what you want to build and Lovable handles the code.
 - **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+- **Full ownership**: this code is yours. Push to `main` on GitHub and these changes sync back into Lovable.
 
 ## Development
 
@@ -20,3 +20,17 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+## DM4615 Windows agent (draft)
+
+The .NET 8 Windows agent is developed on branch `feat/dm4615-windows-agent` and reviewed in PR #3. It is not production-ready, installed, or deployed.
+
+- SSH MGMT handshake with strict SHA-256 host-key verification; no CLI commands run.
+- Current local API listens only on 127.0.0.1:17861 and requires an agent token (except basic health).
+- Windows self-contained portable build and Inno Setup installer definitions are included.
+- Recommended VPN: Tailscale. A read-only connectivity diagnostic is included.
+- Remote panel access is not enabled until application-level identity and authorization are implemented; do not expose the agent API with Tailscale Serve yet.
+- No OLT configuration, database schema, migrations, or data are modified.
+
+Build and VPN instructions: [docs/windows-agent-vpn.md](docs/windows-agent-vpn.md).
+See also [docs/architecture.md](docs/architecture.md), [docs/device-cli-validation.md](docs/device-cli-validation.md), and [src/agent/README.md](src/agent/README.md).
