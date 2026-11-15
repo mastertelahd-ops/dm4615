@@ -73,12 +73,21 @@ function AutoProvisioning() {
         enabled: true,
       }, { onConflict: "vendor,model,management_host" }).select("id").single();
       if (oltError) throw oltError;
-      const { data: pon, error: ponError } = await supabase.from("pon_ports").upsert({
-        olt_id: olt.id,
-        interface_name: VALIDATED_PON,
-        enabled: true,
-      }, { onConflict: "olt_id,interface_name" }).select("id").single();
-      if (ponError) throw ponError;
+      // Inventário das interfaces físicas já identificadas na DM4615.
+      // A coleta ao vivo continua validada somente em 1/1/2 nesta versão.
+      const ponIds = new Map<string, string>();
+      for (let n = 1; n <= 16; n++) {
+        const interfaceName = `1/1/${n}`;
+        const { data: port, error: portError } = await supabase.from("pon_ports").upsert({
+          olt_id: olt.id,
+          interface_name: interfaceName,
+          enabled: true,
+        }, { onConflict: "olt_id,interface_name" }).select("id").single();
+        if (portError) throw portError;
+        ponIds.set(interfaceName, port.id);
+      }
+      const detectedPonId = ponIds.get(VALIDATED_PON);
+      if (!detectedPonId) throw new Error("PON validada não foi registrada no inventário.");
 
       for (const item of parsed) {
         const { data: existing, error: findError } = await supabase.from("onus").select("id,customer_id").eq("serial_number", item.serial).maybeSingle();
@@ -89,7 +98,7 @@ function AutoProvisioning() {
           const { error: updateError } = await supabase.from("onus").update({
             onu_number: item.onuNumber,
             olt_id: olt.id,
-            pon_port_id: pon.id,
+            pon_port_id: detectedPonId,
             status,
             last_seen_at: result.collectedAt,
             metadata: { observed_oper_state: item.state, observed_pon: VALIDATED_PON, source_command: result.command },
@@ -100,7 +109,7 @@ function AutoProvisioning() {
             serial_number: item.serial,
             onu_number: item.onuNumber,
             olt_id: olt.id,
-            pon_port_id: pon.id,
+            pon_port_id: detectedPonId,
             status: "unregistered",
             last_seen_at: result.collectedAt,
             metadata: { observed_oper_state: item.state, observed_pon: VALIDATED_PON, source_command: result.command },
