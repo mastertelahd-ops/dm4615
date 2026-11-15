@@ -28,3 +28,7 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Project rules
+- OLT access goes only through the local Windows agent via `src/lib/agent-api.ts`; the UI calls an agent route only when `/health` declares its capability (no invented calls).
+- Agent token lives only in React memory; only the agent URL may be persisted. Write/provisioning operations stay blocked until explicitly authorized.
