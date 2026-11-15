@@ -198,8 +198,8 @@ static async Task<SshResult<T>> WithSsh<T>(
     var hostKeyAccepted = false;
     client.HostKeyReceived += (_, e) =>
     {
-        var actual = Convert.ToBase64String(SHA256.HashData(e.HostKey));
-        var normalizedExpected = expectedFingerprint.Replace("SHA256:", "", StringComparison.Ordinal).Trim();
+        var actual = Convert.ToBase64String(SHA256.HashData(e.HostKey)).TrimEnd('=');
+        var normalizedExpected = expectedFingerprint.Replace("SHA256:", "", StringComparison.Ordinal).Trim().TrimEnd('=');
         hostKeyAccepted = CryptographicOperations.FixedTimeEquals(
             Encoding.ASCII.GetBytes(actual), Encoding.ASCII.GetBytes(normalizedExpected));
         e.CanTrust = hostKeyAccepted;
