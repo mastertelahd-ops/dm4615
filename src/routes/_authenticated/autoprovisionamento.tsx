@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { AgentProvider, useAgent } from "@/lib/agent-context";
+import { useAgent } from "@/lib/agent-context";
 import { VALIDATED_PON } from "@/lib/agent-api";
 
 type Customer = { id: string; full_name: string; document_number: string | null };
@@ -12,7 +12,7 @@ type RequestRow = { id: string; onu_id: string; profile_type: "bridge" | "router
 
 export const Route = createFileRoute("/_authenticated/autoprovisionamento")({
   ssr: false,
-  component: () => <AgentProvider><AutoProvisioning /></AgentProvider>,
+  component: AutoProvisioning,
 });
 
 function AutoProvisioning() {
