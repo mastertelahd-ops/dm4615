@@ -1,22 +1,33 @@
-# DM4615
+# DM4615 — Painel de OLT (somente leitura)
 
-This project was built with [Lovable](https://lovable.dev).
+Painel web para a OLT Datacom DM4615 (192.168.0.25) que conversa com um **agente local Windows**. O navegador nunca recebe senha SSH: quem acessa a OLT é o agente.
 
-## Build with Lovable
+## Conectar o agente
+1. Instale e rode o agente na mesma máquina (padrão `http://127.0.0.1:17861`).
+2. No painel, abra **Conexão do agente**, confira a URL e informe o token do agente.
+   - A URL pode ser salva no navegador; o **token fica só em memória** (não vai para localStorage, URL, logs ou banco).
+3. Clique em **Testar conexão** (`GET /health`).
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/5048035b-5812-5d98-a874-ee5a764cc22d).
+O agente deve responder CORS para a origem do painel (`Access-Control-Allow-Origin`, `Access-Control-Allow-Headers: Authorization, Content-Type`) e, para Chrome, `Access-Control-Allow-Private-Network: true` no preflight.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+## Contrato que o agente precisa implementar
+Todas as rotas recebem `Authorization: Bearer <token>`.
 
-## Development
+| Rota | Capability | Comando na OLT |
+|---|---|---|
+| `GET /health` → `{ status, version?, agent?, capabilities: string[] }` | — | — |
+| `GET /olt/gpon/interface?pon=1/1/2` | `gpon.interface.read` | `show interface gpon 1/1/2` |
+| `GET /olt/gpon/onu?pon=1/1/2` | `gpon.onu.read` | `show interface gpon 1/1/2 onu` |
+| `POST /olt/cli/read` body `{ command }` | `cli.read` | apenas allowlist de leitura |
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Resposta das consultas: `{ command, collectedAt (ISO), raw, parsed? }`.
+O painel só chama uma rota se `/health` listar a capability; caso contrário mostra "consulta não implementada". Obs.: `show onu` sozinho não existe no DM4615.
 
+## Bloqueios
+Escrita, provisionamento, configuração e reboot estão bloqueados nesta versão. Não há banco de dados.
+
+## Desenvolvimento
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+bun install && bun run dev
+bun run test && bun run lint && bun run build
 ```
