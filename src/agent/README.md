@@ -41,7 +41,8 @@ dotnet run --project .\src\agent\Dm4615.Agent.csproj
 
 ## API
 
-- `GET /health`: status público, versão e capabilities disponíveis.
+- `GET /health`: status público, versão e capabilities disponíveis. Use `http://127.0.0.1:17861/health` para verificar; a raiz `/` não é uma rota pública e pode responder `unauthorized`.
+- `POST /olt/connection-test`: rota protegida; valida handshake SSH e fingerprint sem executar comandos na OLT.
 - `GET /olt/gpon/interface?pon=1/1/2`: somente leitura; executa `show interface gpon 1/1/2`.
 - `GET /olt/gpon/onu?pon=1/1/2`: somente leitura; executa `show interface gpon 1/1/2 onu`.
 - `POST /olt/cli/read`: permite somente esses dois comandos exatos.
