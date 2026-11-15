@@ -7,6 +7,7 @@ import {
   createAgentClient,
   isLoopback,
   normalizeUrl,
+  parseInterface,
   testOltConnection,
 } from "@/lib/agent-api";
 import { DEMO_DATA, DEMO_LABEL } from "@/lib/demo-data";
