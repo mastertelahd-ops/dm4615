@@ -24,6 +24,28 @@ describe("agent api", () => {
     expect(f.mock.calls[0]![0]).toBe("http://127.0.0.1:17861/health");
     expect(f.mock.calls[0]![1].headers.Authorization).toBe("Bearer secret");
   });
+  it("tests SSH with an authenticated POST and executes no CLI command", async () => {
+    const f = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          connected: true,
+          host: "192.168.0.25",
+          port: 22,
+          hostKeyVerified: true,
+          commandExecuted: false,
+          message: "Handshake SSH concluído.",
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", f);
+    const { testSshConnection } = await import("@/lib/agent-api");
+    const result = await testSshConnection(DEFAULT_AGENT_URL, "secret");
+    expect(f.mock.calls[0]![0]).toBe("http://127.0.0.1:17861/olt/connection-test");
+    expect(f.mock.calls[0]![1].method).toBe("POST");
+    expect(f.mock.calls[0]![1].headers.Authorization).toBe("Bearer secret");
+    expect(result.commandExecuted).toBe(false);
+  });
   it("does not call endpoints the agent did not declare", async () => {
     const f = vi.fn();
     vi.stubGlobal("fetch", f);
