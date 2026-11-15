@@ -38,3 +38,11 @@ Ativado no menu lateral. Exibe somente dados fictícios marcados "SIMULAÇÃO �
 
 ## Atualização automática
 Opcional a cada 30 s na tela GPON/ONUs; pausa quando a aba fica inativa.
+
+## Agente Windows — integração GPON de leitura
+
+O agente .NET 8 está em `src/agent`. Ele escuta somente em `127.0.0.1:17861`, valida token Bearer e fingerprint SSH SHA-256 fixada, e permite consultas somente de leitura à PON `1/1/2`.
+
+Consulte [src/agent/README.md](src/agent/README.md) para configuração local. Credenciais devem permanecer em variáveis de ambiente no Windows; nunca as grave no Git. As consultas CLI só são anunciadas quando `DM4615_ENABLE_READ_COMMANDS=true`. Escrita, provisionamento e reboot permanecem bloqueados.
+
+O agente libera `/health` e a resposta vazia `/favicon.ico` sem autenticação; todas as rotas operacionais exigem token. A origem CORS deve estar na allowlist exata. Não exponha o serviço fora do loopback.
