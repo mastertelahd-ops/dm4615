@@ -217,7 +217,7 @@ function AutoProvisioning() {
       const { data: userData } = await supabase.auth.getUser();
       const { error: updateError } = await supabase.from("provisioning_requests").update({
         status: decision,
-        approved_by: decision === "approved" ? userData.user?.id : null,
+        approved_by: decision === "approved" ? (userData.user?.id ?? null) : null,
         approved_at: decision === "approved" ? new Date().toISOString() : null,
         approval_note: decision === "approved" ? "Aprovado pelo administrador. Aguardando habilitação técnica do executor OLT." : "Rejeitado pelo administrador.",
       }).eq("id", request.id).eq("status", "pending_approval");
