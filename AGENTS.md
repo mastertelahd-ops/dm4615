@@ -30,5 +30,5 @@ use the editor.
 <!-- LOVABLE:END -->
 
 ## Project rules
-- OLT access goes only through the local Windows agent via `src/lib/agent-api.ts`; the UI calls an agent route only when `/health` declares its capability (no invented calls).
+- OLT access goes only through the local Windows agent via `src/lib/agent-api.ts`: `/health` is public; `/olt/connection-test` needs the token; data routes are called only when `/health` declares their capability and only for the validated PON. Demo data lives isolated in `src/lib/demo-data.ts` and is never mixed with real data.
 - Agent token lives only in React memory; only the agent URL may be persisted. Write/provisioning operations stay blocked until explicitly authorized.
