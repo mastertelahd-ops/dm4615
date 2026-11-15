@@ -90,9 +90,9 @@ function AutoProvisioning() {
       if (!detectedPonId) throw new Error("PON validada não foi registrada no inventário.");
 
       for (const item of parsed) {
-        const { data: existing, error: findError } = await supabase.from("onus").select("id,customer_id").eq("serial_number", item.serial).maybeSingle();
+        const { data: existing, error: findError } = await supabase.from("onus").select("id,customer_id,status").eq("serial_number", item.serial).maybeSingle();
         if (findError) throw findError;
-        const status = existing?.customer_id ? (item.state === "Up" ? "online" : "offline") : "unregistered";
+        const status = existing?.status === "pending_approval" || existing?.status === "provisioning" ? existing.status : existing?.customer_id ? (item.state === "Up" ? "online" : "offline") : "unregistered";
         let savedId = existing?.id;
         if (existing) {
           const { error: updateError } = await supabase.from("onus").update({
