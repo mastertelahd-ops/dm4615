@@ -206,3 +206,56 @@ show onu ponIfEntry 101744641 interface-name
 ```
 
 Se funcionar, testar separadamente `total-onus`, `up-onus`, `down-onus` e `non-provisioned-onus` para o mesmo índice. Não concatenar comandos na mesma linha. Ainda não associar o índice `101744641` a uma PON específica até a resposta de `interface-name` ser observada.
+
+
+### Consulta detalhada da PON `show interface gpon 1/1/2` — 14/11/2026
+
+Nova coleta fornecida pelo operador no prompt `FireNet-OLT#`:
+
+Comando executado:
+
+```text
+show interface gpon 1/1/2
+```
+
+Resultado observado:
+- Interface física: `gpon 1/1/2`.
+- Estado administrativo: `Enabled`.
+- Link físico: `Up`.
+- Tipo de enlace: `GPON`.
+- Alcance lógico informado: `0-40 km`.
+- FEC downstream e upstream: `Enabled`.
+- Tipo de transceiver: `taclink-datacom-custom`.
+- Banda upstream alocada máxima: `1399936 kbit/s`.
+- Overhead: `66 kbit/s (2 ONUs)`.
+- Banda upstream disponível CBR: `615744 kbit/s`.
+- Banda upstream disponível total: `1217344 kbit/s`.
+
+Esses valores são uma fotografia da interface no instante da consulta. A saída não fornece potência óptica RX/TX individual das ONUs nem tráfego por ONU. Não converter os campos de banda disponível em consumo de assinantes.
+
+### Listagem individual de ONUs — `show interface gpon 1/1/2 onu`
+
+Comando executado com sucesso:
+
+```text
+show interface gpon 1/1/2 onu
+```
+
+ONUs exibidas:
+| Interface | ONU ID | Serial | Estado operacional | Estado de download |
+|---|---:|---|---|---|
+| 1/1/2 | 1 | ZTEGC4FFAB0A | Up | None |
+| 1/1/2 | 2 | ZYXE8CAF45DD | Down | None |
+
+A coluna Name veio vazia nas duas linhas. Essa consulta confirma uma forma válida de listar ONUs e seus estados operacionais nessa PON. Ainda não revela nome/cliente, potência óptica, distância ou estatísticas individuais.
+
+### Comando `show onu` sem argumentos
+
+A execução literal de `show onu` sem argumentos retornou `syntax error: element does not exist`. Portanto, não usar `show onu` isoladamente como comando de listagem. A ajuda `show onu ?` previamente observada apresenta subcomandos/campos, mas a consulta individual de ONUs validada até agora é `show interface gpon 1/1/2 onu`.
+
+### Limites e próxima validação
+
+- A consulta individual por PON está confirmada apenas para a interface `1/1/2`; validar outras portas antes de generalizar.
+- A porta física está Up, mas uma das duas ONUs está Down; o estado da PON não deve ser usado como substituto do estado individual da ONU.
+- O próximo mapeamento deve explorar ajuda contextual após a listagem de ONUs e identificar comandos estritamente de leitura para detalhes de ONU, óptica e distância. Não inferir sintaxe ou liberar comandos de escrita.
+- O agente ainda não implementa execução de CLI; estes resultados são evidência para o futuro adaptador de leitura, não prova de integração funcional.
