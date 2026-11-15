@@ -296,7 +296,9 @@ async function call(
     throw new AgentAuthError("Token inválido: o agente recusou a consulta.");
   if (!res.ok) {
     const d = await problemDetail(res);
-    throw new Error(`A consulta falhou: o agente respondeu HTTP ${res.status}${d ? ` — ${d}` : "."}`);
+    throw new Error(
+      `A consulta falhou: o agente respondeu HTTP ${res.status}${d ? ` — ${d}` : "."}`,
+    );
   }
   let body: Partial<CollectResult>;
   try {
@@ -315,7 +317,9 @@ async function call(
 
 function assertPon(pon: string) {
   if (!isValidPon(pon))
-    throw new AgentUnavailableError(`PON ${pon} fora do intervalo 1/1/1–1/1/16: consulta bloqueada.`);
+    throw new AgentUnavailableError(
+      `PON ${pon} fora do intervalo 1/1/1–1/1/16: consulta bloqueada.`,
+    );
 }
 
 export function createAgentClient(baseUrl: string, token: string, caps: Capability[]) {

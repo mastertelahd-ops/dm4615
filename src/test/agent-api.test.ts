@@ -140,7 +140,10 @@ describe("16 PONs e parsed", () => {
     expect(onusFrom({ command: "", collectedAt: "", raw: "", parsed: null }, "1/1/2")).toBeNull();
   });
   it("detail do 503 aparece na mensagem", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ detail: "Consultas CLI estão desabilitadas." }, 503)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json({ detail: "Consultas CLI estão desabilitadas." }, 503)),
+    );
     await expect(
       createAgentClient(DEFAULT_AGENT_URL, "t", ["gpon.onu.read"]).gponOnus("1/1/2"),
     ).rejects.toThrow("Consultas CLI estão desabilitadas.");
