@@ -130,6 +130,44 @@ export async function checkHealth(baseUrl: string, token: string): Promise<Healt
   }
 }
 
+export interface SshConnectionResult {
+  connected: boolean;
+  host: string;
+  port: number;
+  hostKeyVerified: boolean;
+  commandExecuted: false;
+  message: string;
+}
+
+/** Valida o handshake SSH sem executar comandos na OLT. */
+export async function testSshConnection(baseUrl: string, token: string): Promise<SshConnectionResult> {
+  const base = normalizeUrl(baseUrl);
+  if (!base) throw new Error("URL inválida do agente.");
+  let res: Response;
+  try {
+    res = await timedFetch(
+      `${base}/olt/connection-test`,
+      { method: "POST", headers: headers(token), cache: "no-store" },
+      15000,
+    );
+  } catch {
+    throw new Error("Não foi possível alcançar o teste SSH do agente.");
+  }
+  if (res.status === 401 || res.status === 403)
+    throw new Error("Token do agente recusado. Confira o mesmo token nas duas janelas.");
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = typeof body.detail === "string" ? body.detail : "";
+    } catch {
+      /* ignore invalid error body */
+    }
+    throw new Error(detail || `Falha no handshake SSH (HTTP ${res.status}).`);
+  }
+  return (await res.json()) as SshConnectionResult;
+}
+
 export class AgentUnavailableError extends Error {}
 
 async function call(
