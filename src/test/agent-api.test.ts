@@ -83,15 +83,13 @@ describe("agent api", () => {
   it("consulta bem-sucedida retorna raw e horário", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          json({
-            command: "show interface gpon 1/1/2",
-            collectedAt: "2026-11-15T01:00:00Z",
-            raw: "ok",
-          }),
-        ),
+      vi.fn().mockResolvedValue(
+        json({
+          command: "show interface gpon 1/1/2",
+          collectedAt: "2026-11-15T01:00:00Z",
+          raw: "ok",
+        }),
+      ),
     );
     const r = await createAgentClient(DEFAULT_AGENT_URL, "t", [
       "gpon.interface.read",
