@@ -31,3 +31,10 @@ Escrita, provisionamento, configuração e reboot estão bloqueados nesta versã
 bun install && bun run dev
 bun run test && bun run lint && bun run build
 ```
+
+
+## Agente Windows — integração de leitura
+
+A branch `feat/dm4615-live-agent` inclui a API local .NET 8 para teste de SSH e consultas de leitura da PON `1/1/2`. O serviço permanece em loopback e exige fingerprint SSH SHA-256 fixada. As consultas CLI começam desabilitadas e só são anunciadas em `/health` quando `DM4615_ENABLE_READ_COMMANDS=true`.
+
+Leia [src/agent/README.md](src/agent/README.md) antes de configurar. Não grave credenciais no repositório e não exponha a API publicamente. O agente ainda precisa ser compilado e testado no Windows contra a OLT real; a implementação usa SSH exec e pode exigir adaptação para shell interativo se o firmware não aceitar exec.
