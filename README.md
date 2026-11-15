@@ -17,8 +17,8 @@ Todas as rotas exceto `/health` recebem `Authorization: Bearer <token>`.
 |---|---|---|
 | `GET /health` (público, sem token) → `{ status, version?, agent?, capabilities: string[] }` | — | — |
 | `POST /olt/connection-test` (token) | — | handshake SSH (não habilita CLI) |
-| `GET /olt/gpon/interface?pon=1/1/2` | `gpon.interface.read` | `show interface gpon 1/1/2` |
-| `GET /olt/gpon/onu?pon=1/1/2` | `gpon.onu.read` | `show interface gpon 1/1/2 onu` |
+| `GET /olt/gpon/interface?pon=1/1/N` (N = 1..16) | `gpon.interface.read` | `show interface gpon 1/1/N` |
+| `GET /olt/gpon/onu?pon=1/1/N` (N = 1..16) | `gpon.onu.read` | `show interface gpon 1/1/N onu` |
 | `POST /olt/cli/read` body `{ command }` | `cli.read` | apenas allowlist de leitura |
 
 Resposta das consultas: `{ command, collectedAt (ISO), raw, parsed? }`.
@@ -41,7 +41,7 @@ Opcional a cada 30 s na tela GPON/ONUs; pausa quando a aba fica inativa.
 
 ## Agente Windows — integração GPON de leitura
 
-O agente .NET 8 está em `src/agent`. Ele escuta somente em `127.0.0.1:17861`, valida token Bearer e fingerprint SSH SHA-256 fixada, e permite consultas somente de leitura à PON `1/1/2`.
+O agente .NET 8 está em `src/agent`. Ele escuta somente em `127.0.0.1:17861`, valida token Bearer e fingerprint SSH SHA-256 fixada, e permite consultas somente de leitura às PONs `1/1/1` a `1/1/16`.
 
 Consulte [src/agent/README.md](src/agent/README.md) para configuração local. Credenciais devem permanecer em variáveis de ambiente no Windows; nunca as grave no Git. As consultas CLI só são anunciadas quando `DM4615_ENABLE_READ_COMMANDS=true`. Escrita, provisionamento e reboot permanecem bloqueados.
 
