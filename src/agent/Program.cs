@@ -29,7 +29,7 @@ builder.Services.Configure<JsonOptions>(options =>
 
 var app = builder.Build();
 var allowedOrigins = (Environment.GetEnvironmentVariable("DM4615_AGENT_ALLOWED_ORIGINS")
-    ?? "https://dm4615.lovable.app;https://id-preview--5048035b-5812-5d98-a874-ee5a764cc22d.lovable.app;http://localhost:3000;http://localhost:5173")
+    ?? "https://dm4615.lovable.app;https://id-preview--5048035b-5812-5d98-a874-ee5a764cc22d.lovable.app;https://5048035b-5812-5d98-a874-ee5a764cc22d.lovableproject.com;http://localhost:3000;http://localhost:5173")
     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 var commandsEnabled = string.Equals(
     Environment.GetEnvironmentVariable("DM4615_ENABLE_READ_COMMANDS"), "true",
@@ -130,7 +130,7 @@ app.MapGet("/olt/gpon/interface", async (string pon, IConfiguration configuratio
 app.MapGet("/olt/gpon/onu", async (string pon, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (!commandsEnabled) return Results.Problem("Consultas CLI estão desabilitadas. Ative DM4615_ENABLE_READ_COMMANDS=true após validar a CLI.", statusCode: 503);
-    if (pon != "1/1/2") return Results.BadRequest(new { error = "Nesta versão, somente a PON 1/1/2 foi validada." });
+    if (!IsSupportedPon(pon)) return Results.BadRequest(new { error = "PON inválida. Informe uma interface física entre 1/1/1 e 1/1/16." });
     return await RunReadCommand(configuration, $"show interface gpon {pon} onu", cancellationToken);
 });
 

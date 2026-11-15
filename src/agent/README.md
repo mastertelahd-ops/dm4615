@@ -21,7 +21,7 @@ $env:DM4615_SSH_USERNAME = "SEU_USUARIO"
 $env:DM4615_SSH_PASSWORD = "SUA_SENHA"
 $env:DM4615_SSH_HOSTKEY_SHA256 = "FINGERPRINT_SHA256_CONFIRMADA"
 $env:DM4615_AGENT_TOKEN = "TOKEN_ALEATORIO_FORTE"
-$env:DM4615_AGENT_ALLOWED_ORIGINS = "https://dm4615.lovable.app;https://id-preview--5048035b-5812-5d98-a874-ee5a764cc22d.lovable.app"
+$env:DM4615_AGENT_ALLOWED_ORIGINS = "https://dm4615.lovable.app;https://id-preview--5048035b-5812-5d98-a874-ee5a764cc22d.lovable.app;https://5048035b-5812-5d98-a874-ee5a764cc22d.lovableproject.com"
 ```
 
 Por segurança, comandos de leitura iniciam desabilitados. Primeiro execute o agente e teste o handshake SSH; depois valide as consultas manualmente no equipamento e só então habilite:
@@ -43,13 +43,13 @@ dotnet run --project .\src\agent\Dm4615.Agent.csproj
 
 - `GET /health`: status público, versão e capabilities disponíveis. Use `http://127.0.0.1:17861/health` para verificar; a raiz `/` não é uma rota pública e pode responder `unauthorized`.
 - `POST /olt/connection-test`: rota protegida; valida handshake SSH e fingerprint sem executar comandos na OLT.
-- `GET /olt/gpon/interface?pon=1/1/2`: somente leitura; executa `show interface gpon 1/1/2`.
-- `GET /olt/gpon/onu?pon=1/1/2`: somente leitura; executa `show interface gpon 1/1/2 onu`.
-- `POST /olt/cli/read`: permite somente esses dois comandos exatos.
+- `GET /olt/gpon/interface?pon=1/1/N`: somente leitura; N entre 1 e 16; executa `show interface gpon 1/1/N`.
+- `GET /olt/gpon/onu?pon=1/1/N`: somente leitura; N entre 1 e 16; executa `show interface gpon 1/1/N onu`.
+- `POST /olt/cli/read`: permite somente comandos `show interface gpon 1/1/N` e `show interface gpon 1/1/N onu`, com N entre 1 e 16.
 
 Rotas protegidas aceitam `Authorization: Bearer <token>`. A API inclui CORS e Private Network Access para as origens listadas em `DM4615_AGENT_ALLOWED_ORIGINS`. Não use curingas.
 
-Apenas a PON 1/1/2 foi validada até agora. As demais portas são rejeitadas. `show onu` isolado não é um comando válido nesse firmware. Nenhum comando de configuração, provisionamento, reboot ou limpeza é aceito.
+A API aceita consultas de leitura para as 16 PONs. A coleta anterior confirmou a interface das 16 portas e listou ONUs na PON 1/1/2; valide no equipamento a resposta de `show interface gpon 1/1/N onu` em cada porta antes de considerar o inventário completo. `show onu` isolado não é um comando válido nesse firmware. Nenhum comando de configuração, provisionamento, reboot ou limpeza é aceito.
 
 ## Limitações importantes
 
