@@ -52,4 +52,6 @@ O agente libera `/health` e a resposta vazia `/favicon.ico` sem autenticação; 
 - Origens CORS que o agente deve permitir: preview, publicado e `https://5048035b-5812-5d98-a874-ee5a764cc22d.lovableproject.com` (editor). O agente precisa responder `Access-Control-Allow-Private-Network: true`. No Chrome e no Edge, aceite o pedido de "acesso à rede local". Firefox e Safari podem bloquear chamadas a `http://127.0.0.1` a partir de HTTPS.
 - Erros `problem+json` do agente (`detail`) são exibidos ao usuário.
 - A descoberta em Autoprovisionamento também é manual e **somente leitura**: consulta as 16 PONs, mantém os resultados em memória e não executa `insert`, `update` ou `upsert` durante a coleta. As ações de solicitação/aprovação são fluxos administrativos separados e não executam comandos na OLT.
+- Na tela Autoprovisionamento, a partir de uma ONU já cadastrada, é possível criar solicitações de teste para provisionar ou desprovisionar. A solicitação e a aprovação são auditadas, mas `execution_enabled=false`: nenhum comando é executado na OLT e o registro da ONU não é alterado. A execução real depende de validar comandos/modelos na DM4615 e habilitar um executor protegido.
+
 - `agent/app.py` é legado: o contrato atual é o agente .NET em `src/agent/`.
