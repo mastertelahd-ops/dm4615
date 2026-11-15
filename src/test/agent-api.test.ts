@@ -16,7 +16,9 @@ describe("agent api", () => {
     expect(r.ok).toBe(false);
   });
   it("sends token as header, never in the URL", async () => {
-    const f = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "ok", capabilities: [] })));
+    const f = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ status: "ok", capabilities: [] })));
     vi.stubGlobal("fetch", f);
     await checkHealth(DEFAULT_AGENT_URL, "secret");
     expect(f.mock.calls[0][0]).toBe("http://127.0.0.1:17861/health");
@@ -29,9 +31,13 @@ describe("agent api", () => {
     expect(f).not.toHaveBeenCalled();
   });
   it("blocks commands outside the read-only allowlist", async () => {
-    await expect(createAgentClient(DEFAULT_AGENT_URL, "t", ["cli.read"]).cliRead("reboot")).rejects.toThrow();
+    await expect(
+      createAgentClient(DEFAULT_AGENT_URL, "t", ["cli.read"]).cliRead("reboot"),
+    ).rejects.toThrow();
   });
   it("blocks write operations", async () => {
-    await expect(createAgentClient(DEFAULT_AGENT_URL, "t", []).write("provision")).rejects.toThrow();
+    await expect(
+      createAgentClient(DEFAULT_AGENT_URL, "t", []).write("provision"),
+    ).rejects.toThrow();
   });
 });
