@@ -1,0 +1,2 @@
+- [x] Login por e-mail/senha
+- [x] Botão Entrar com Google

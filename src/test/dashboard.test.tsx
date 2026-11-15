@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { Route } from "@/routes/index";
+import { Route } from "@/routes/_authenticated/painel";
 
 const Page = Route.options.component as () => React.JSX.Element;
 
