@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -421,31 +421,92 @@ function Overview({ go }: { go: (s: Section) => void }) {
 }
 
 function OnuTable() {
+  const { client, online, health, log } = useAgent();
+  const [live, setLive] = useState<Record<string, "Up" | "Down">>({});
+  const [collectedAt, setCollectedAt] = useState<Date | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const available =
+    online && health?.ok === true && health.info.capabilities.includes("gpon.onu.read");
+
+  const refresh = useCallback(async () => {
+    if (!available) {
+      setLive({});
+      setCollectedAt(null);
+      setError("Sem comunicação com o agente/OLT.");
+      return;
+    }
+    try {
+      const result = await client.gponOnus(VALIDATED_PON);
+      const next: Record<string, "Up" | "Down"> = {};
+      const line = /^\\s*1\\/1\\/2\\s+(\\d+)\\s+([A-Z0-9]+)\\s+(Up|Down)\\b/gim;
+      for (const match of result.raw.matchAll(line)) {
+        next[match[2]] = match[3] as "Up" | "Down";
+      }
+      if (Object.keys(next).length === 0) {
+        throw new Error("A OLT respondeu, mas não foi possível interpretar a lista de ONUs.");
+      }
+      setLive(next);
+      setCollectedAt(new Date(result.collectedAt));
+      setError(null);
+      log("ok", "Atualização automática de ONUs", `${Object.keys(next).length} ONU(s) lida(s) da OLT`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Falha ao consultar as ONUs.";
+      setLive({});
+      setCollectedAt(null);
+      setError(message);
+      log("erro", "Atualização automática de ONUs", message);
+    }
+  }, [available, client, log]);
+
+  useEffect(() => {
+    if (available) void refresh();
+    else {
+      setLive({});
+      setCollectedAt(null);
+      setError("Sem comunicação: aguardando agente e consulta GPON disponíveis.");
+    }
+  }, [available, refresh]);
+  useAutoRefresh(available, refresh, 30_000);
+
+  const stateLabel = (serial: string) => live[serial] ?? "Desconhecido";
   return (
     <Card
       title={`ONUs na PON ${S.pon.id}`}
-      desc="Sem cliente atribuído. Potência, distância e tráfego não são coletados."
-      right={<ManualBadge />}
+      desc="Status consultado diretamente na OLT, com atualização automática a cada 30 segundos."
+      right={
+        <div className="text-right">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/20 bg-cyan-400/[0.06] px-2 py-1 text-[10px] text-cyan-200">
+            <RefreshCw size={11} /> Ao vivo • 30 s
+          </span>
+          <div className="mt-1 text-[10px] text-slate-500">
+            {collectedAt ? `Última coleta: ${collectedAt.toLocaleTimeString("pt-BR")}` : "Aguardando coleta"}
+          </div>
+        </div>
+      }
     >
+      {error && <div role="status" className="mb-3 rounded-lg border border-amber-400/20 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-200">{error}</div>}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[360px] text-left">
+        <table className="w-full min-w-[420px] text-left">
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-slate-500">
               <th className="py-2 font-medium">ONU ID</th>
               <th className="py-2 font-medium">Serial</th>
-              <th className="py-2 font-medium">Status (manual)</th>
+              <th className="py-2 font-medium">Status real</th>
             </tr>
           </thead>
           <tbody>
-            {S.onus.map((o) => (
-              <tr key={o.onuId} className="border-t border-white/[0.045] text-xs">
-                <td className="py-3 font-mono">{o.onuId}</td>
-                <td className="py-3 font-mono text-slate-200">{o.serial}</td>
-                <td className="py-3">
-                  <Status value={o.status} />
-                </td>
-              </tr>
-            ))}
+            {S.onus.map((o) => {
+              const status = stateLabel(o.serial);
+              return (
+                <tr key={o.onuId} className="border-t border-white/[0.045] text-xs">
+                  <td className="py-3 font-mono">{o.onuId}</td>
+                  <td className="py-3 font-mono text-slate-300">{o.serial}</td>
+                  <td className="py-3">
+                    <Status value={status} />
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
