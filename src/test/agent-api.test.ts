@@ -109,7 +109,7 @@ describe("agent api", () => {
   });
 });
 
-import { PON_LIST, onusFrom, parseOnus, READ_ONLY_COMMANDS } from "@/lib/agent-api";
+import { PON_LIST, onusFrom, parseInterface, parseOnus, READ_ONLY_COMMANDS } from "@/lib/agent-api";
 
 describe("16 PONs e parsed", () => {
   it("aceita 1/1/16 e bloqueia 1/1/17 e 2/1/1 sem fetch", async () => {
@@ -151,5 +151,36 @@ describe("16 PONs e parsed", () => {
   it("allowlist só tem comandos show das 16 PONs", () => {
     expect(READ_ONLY_COMMANDS).toHaveLength(32);
     expect(READ_ONLY_COMMANDS.every((c) => c.startsWith("show interface gpon 1/1/"))).toBe(true);
+  });
+});
+
+
+describe("interface GPON estruturada", () => {
+  it("interpreta a resposta real da PON 1/1/2", () => {
+    const parsed = parseInterface({
+      kind: "gpon-interface",
+      pon: "1/1/2",
+      adminState: "Enabled",
+      operState: "Up",
+      linkLevelType: "GPON",
+      logicalReach: "0-40 km",
+      downstreamFec: "Enabled",
+      upstreamFec: "Enabled",
+      transceiverType: "taclink-datacom-custom",
+      allocatedUpstream: { maxKbit: 1399936, overheadKbit: 66 },
+      availableUpstream: { cbrKbit: null, totalKbit: 1217344 },
+      onuCount: 2,
+      parseStatus: "ok",
+    });
+    expect(parsed?.pon).toBe("1/1/2");
+    expect(parsed?.adminState).toBe("Enabled");
+    expect(parsed?.operState).toBe("Up");
+    expect(parsed?.onuCount).toBe(2);
+    expect(parsed?.allocatedUpstream?.maxKbit).toBe(1399936);
+    expect(parsed?.availableUpstream?.totalKbit).toBe(1217344);
+  });
+
+  it("rejeita resposta sem kind de interface", () => {
+    expect(parseInterface({ pon: "1/1/2", adminState: "Enabled" })).toBeNull();
   });
 });

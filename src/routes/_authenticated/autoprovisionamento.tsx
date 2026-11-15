@@ -2,15 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAgent } from "@/lib/agent-context";
-import { VALIDATED_PON, onusFrom } from "@/lib/agent-api";
-
-/** Gravação da descoberta no banco desativada nesta etapa (somente leitura). */
-const PERSIST_DISCOVERY = false;
+import { PON_LIST, mapLimit, onusFrom } from "@/lib/agent-api";
 
 type Customer = { id: string; full_name: string; document_number: string | null };
 type Plan = { id: string; name: string; download_mbps: number; upload_mbps: number; price: number | null };
 type Pon = { id: string; interface_name: string };
 type Onu = { id: string; serial_number: string; onu_number: number | null; status: string; customer_id: string | null; service_plan_id: string | null; pon_port_id: string | null; last_seen_at: string | null; metadata: Record<string, unknown> };
+type DetectedOnu = { pon: string; onuNumber: number | null; serial: string; state: string };
 type RequestRow = { id: string; onu_id: string; profile_type: "bridge" | "router"; status: string; request_payload: Record<string, unknown>; created_at: string; approval_note: string | null; target_pon_port_id: string | null };
 
 export const Route = createFileRoute("/_authenticated/autoprovisionamento")({
@@ -35,6 +33,8 @@ function AutoProvisioning() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [collectedAt, setCollectedAt] = useState<string | null>(null);
+  const [detectedOnus, setDetectedOnus] = useState<DetectedOnu[]>([]);
+  const [scanErrors, setScanErrors] = useState<string[]>([]);
 
   const loadData = useCallback(async () => {
     const [o, c, p, pp, r] = await Promise.all([
@@ -53,109 +53,59 @@ function AutoProvisioning() {
     setRequests((r.data ?? []) as RequestRow[]);
   }, []);
 
+  /** Descoberta manual e somente leitura: nenhuma gravação no banco ou na OLT. */
   const scan = useCallback(async () => {
     if (!online || !health?.ok || !health.info.capabilities.includes("gpon.onu.read")) {
-      setError("Agente sem consulta GPON disponível. Conecte o agente Windows e valide o acesso à OLT.");
+      setError("Agente sem consulta GPON disponível. Conecte o agente e confirme a capability gpon.onu.read.");
       return;
     }
     setLoading(true);
     setError("");
+    setNotice("");
     try {
-      const result = await client.gponOnus(VALIDATED_PON);
-      const parsed = (onusFrom(result, VALIDATED_PON) ?? []).map((o) => ({ onuNumber: o.onuId ?? 0, serial: o.serial, state: /^up$|online/i.test(o.state) ? "Up" as const : "Down" as const }));
-      if (!parsed.length) throw new Error("A OLT respondeu, mas nenhuma ONU foi reconhecida no formato esperado. Nenhum status foi alterado.");
-      if (!PERSIST_DISCOVERY) {
-        setCollectedAt(result.collectedAt);
-        setNotice(`Leitura concluída (somente leitura, nada gravado): ${parsed.map((o) => `${o.serial} ${o.state}`).join(", ")}.`);
-        log("ok", "Descoberta GPON", `${parsed.length} ONU(s) lidas em ${VALIDATED_PON} (sem gravação)`);
-        return;
-      }
-
-      const { data: olt, error: oltError } = await supabase.from("olt_devices").upsert({
-        name: "OLT principal",
-        vendor: "Datacom",
-        model: "DM4615",
-        management_host: "192.168.0.25",
-        management_port: 22,
-        enabled: true,
-      }, { onConflict: "vendor,model,management_host" }).select("id").single();
-      if (oltError) throw oltError;
-      // Inventário das interfaces físicas já identificadas na DM4615.
-      // A coleta ao vivo continua validada somente em 1/1/2 nesta versão.
-      const ponIds = new Map<string, string>();
-      for (let n = 1; n <= 16; n++) {
-        const interfaceName = `1/1/${n}`;
-        const { data: port, error: portError } = await supabase.from("pon_ports").upsert({
-          olt_id: olt.id,
-          interface_name: interfaceName,
-          enabled: true,
-        }, { onConflict: "olt_id,interface_name" }).select("id").single();
-        if (portError) throw portError;
-        ponIds.set(interfaceName, port.id);
-      }
-      const detectedPonId = ponIds.get(VALIDATED_PON);
-      if (!detectedPonId) throw new Error("PON validada não foi registrada no inventário.");
-
-      for (const item of parsed) {
-        const { data: existing, error: findError } = await supabase.from("onus").select("id,customer_id,status").eq("serial_number", item.serial).maybeSingle();
-        if (findError) throw findError;
-        const status = existing?.status === "pending_approval" || existing?.status === "provisioning" ? existing.status : existing?.customer_id ? (item.state === "Up" ? "online" : "offline") : "unregistered";
-        let savedId = existing?.id;
-        if (existing) {
-          const { error: updateError } = await supabase.from("onus").update({
-            onu_number: item.onuNumber,
-            olt_id: olt.id,
-            pon_port_id: detectedPonId,
-            status,
-            last_seen_at: result.collectedAt,
-            metadata: { observed_oper_state: item.state, observed_pon: VALIDATED_PON, source_command: result.command },
-          }).eq("id", existing.id);
-          if (updateError) throw updateError;
-        } else {
-          const { data: inserted, error: insertError } = await supabase.from("onus").insert({
-            serial_number: item.serial,
-            onu_number: item.onuNumber,
-            olt_id: olt.id,
-            pon_port_id: detectedPonId,
-            status: "unregistered",
-            last_seen_at: result.collectedAt,
-            metadata: { observed_oper_state: item.state, observed_pon: VALIDATED_PON, source_command: result.command },
-          }).select("id").single();
-          if (insertError) throw insertError;
-          savedId = inserted.id;
+      const results = await mapLimit(PON_LIST, 4, async (pon) => {
+        try {
+          const result = await client.gponOnus(pon);
+          const parsed = onusFrom(result, pon);
+          if (parsed === null) {
+            return { pon, onus: [] as DetectedOnu[], error: "Resposta sem lista de ONUs interpretável." };
+          }
+          return {
+            pon,
+            onus: parsed.map((onu) => ({ pon, onuNumber: onu.onuId, serial: onu.serial, state: onu.state })),
+            error: null,
+          };
+        } catch (cause) {
+          return {
+            pon,
+            onus: [] as DetectedOnu[],
+            error: cause instanceof Error ? cause.message : "Falha na consulta.",
+          };
         }
-        if (!savedId) throw new Error("Não foi possível identificar a ONU persistida.");
-        const { error: observationError } = await supabase.from("onu_observations").insert({
-          onu_id: savedId,
-          serial_number: item.serial,
-          olt_id: olt.id,
-          pon_port_id: detectedPonId,
-          observed_status: item.state === "Up" ? "online" : "offline",
-          observed_at: result.collectedAt,
-          raw_data: { onu_number: item.onuNumber, oper_state: item.state, command: result.command, pon: VALIDATED_PON },
-        });
-        if (observationError) throw observationError;
-      }
-      setCollectedAt(result.collectedAt);
-      setNotice(`Coleta concluída: ${parsed.length} ONU(s) lida(s) na PON ${VALIDATED_PON}. Histórico gravado.`);
-      log("ok", "Descoberta GPON", `${parsed.length} ONU(s) sincronizadas em ${VALIDATED_PON}`);
-      await loadData();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Falha na coleta ou gravação.";
+      });
+      const found = results.flatMap((item) => item.onus);
+      const failures = results.filter((item) => item.error).map((item) => `${item.pon}: ${item.error}`);
+      setDetectedOnus(found);
+      setScanErrors(failures);
+      setCollectedAt(new Date().toISOString());
+      setNotice(
+        found.length
+          ? `Leitura concluída: ${found.length} ONU(s) encontradas em ${PON_LIST.length} PONs. Nada foi gravado no banco.`
+          : failures.length
+            ? `Nenhuma ONU foi listada; ${failures.length} PON(s) apresentaram falha. Nada foi gravado no banco.`
+            : "Leitura concluída: nenhuma ONU encontrada nas 16 PONs. Isso não é erro. Nada foi gravado no banco.",
+      );
+      log(failures.length ? "erro" : "ok", "Descoberta GPON somente leitura", `${found.length} ONU(s); ${failures.length} PON(s) com falha`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Falha na coleta GPON.";
       setError(message);
-      log("erro", "Descoberta GPON", message);
+      log("erro", "Descoberta GPON somente leitura", message);
     } finally {
       setLoading(false);
     }
-  }, [client, health, online, log, loadData]);
+  }, [client, health, online, log]);
 
   useEffect(() => { void loadData().catch(e => setError(e.message ?? "Falha ao carregar cadastros.")); }, [loadData]);
-  useEffect(() => {
-    if (!online) return;
-    void scan();
-    const timer = window.setInterval(() => void scan(), 30_000);
-    return () => window.clearInterval(timer);
-  }, [online, scan]);
 
   const currentOnu = useMemo(() => onus.find(o => o.id === selected) ?? null, [onus, selected]);
   const customerName = (id: string | null) => customers.find(c => c.id === id)?.full_name ?? "Sem cliente";
@@ -240,16 +190,34 @@ function AutoProvisioning() {
   return <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-8">
     <div className="mx-auto max-w-7xl space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div><p className="text-xs font-semibold uppercase tracking-widest text-cyan-300">DM4615 • GPON</p><h1 className="mt-2 text-3xl font-bold">Descoberta e autoprovisionamento</h1><p className="mt-2 text-sm text-slate-400">Detecção automática, vínculo com cliente/plano e fila de aprovação administrativa.</p></div>
-        <div className="flex items-center gap-3"><span className={online ? "rounded-full bg-emerald-400/10 px-3 py-2 text-xs text-emerald-300" : "rounded-full bg-rose-400/10 px-3 py-2 text-xs text-rose-300"}>{online ? "Agente conectado" : "Agente desconectado"}</span><button disabled={loading} onClick={() => void scan()} className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">{loading ? "Consultando..." : "Buscar agora"}</button></div>
+        <div><p className="text-xs font-semibold uppercase tracking-widest text-cyan-300">DM4615 • GPON</p><h1 className="mt-2 text-3xl font-bold">Descoberta e autoprovisionamento</h1><p className="mt-2 text-sm text-slate-400">Busca manual de ONUs em 16 PONs, sem gravação automática; vínculo e aprovação ficam separados.</p></div>
+        <div className="flex items-center gap-3"><span className={online ? "rounded-full bg-emerald-400/10 px-3 py-2 text-xs text-emerald-300" : "rounded-full bg-rose-400/10 px-3 py-2 text-xs text-rose-300"}>{online ? "Agente conectado" : "Agente desconectado"}</span><button disabled={loading || !online || !health?.ok || !health.info.capabilities.includes("gpon.onu.read")} onClick={() => void scan()} className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">{loading ? "Consultando..." : "Buscar agora"}</button></div>
       </header>
       <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm text-amber-100"><b>Modo protegido:</b> a coleta e a preparação de solicitações estão habilitadas. A aprovação fica registrada, mas a execução de comandos de escrita continua bloqueada até validar os comandos e os modelos reais de ONU da DM4615.</div>
       {error && <div role="alert" className="rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-200">{error}</div>}
       {notice && <div role="status" className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-200">{notice}</div>}
+      <section className="rounded-xl border border-cyan-300/20 bg-cyan-300/[0.035] p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold">Descoberta atual • 16 PONs • somente leitura</h2>
+          <span className="text-xs text-slate-400">{collectedAt ? `Última consulta: ${new Date(collectedAt).toLocaleString("pt-BR")}` : "Aguardando clique em Buscar agora"}</span>
+        </div>
+        <p className="mb-3 text-xs text-slate-400">Os seriais abaixo vêm diretamente do agente Windows. A coleta não cadastra ONUs, não altera clientes e não grava histórico no banco.</p>
+        {scanErrors.length > 0 && <div role="alert" className="mb-3 rounded-lg border border-rose-400/20 bg-rose-400/5 p-3 text-xs text-rose-200">{scanErrors.join(" • ")}</div>}
+        {detectedOnus.length === 0 ? (
+          <p className="text-sm text-slate-500">{collectedAt ? "Nenhuma ONU encontrada na última leitura." : "Nenhuma consulta executada ainda."}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
+              <thead className="text-xs text-slate-400"><tr><th className="p-2">PON</th><th className="p-2">ONU ID</th><th className="p-2">Serial</th><th className="p-2">Estado</th></tr></thead>
+              <tbody>{detectedOnus.map((onu) => <tr key={`${onu.pon}-${onu.serial}`} className="border-t border-white/5"><td className="p-2 font-mono">{onu.pon}</td><td className="p-2">{onu.onuNumber ?? "—"}</td><td className="p-2 font-mono">{onu.serial}</td><td className="p-2"><span className={/^up$|online/i.test(onu.state) ? "rounded-full bg-emerald-400/10 px-2 py-1 text-xs text-emerald-300" : "rounded-full bg-amber-400/10 px-2 py-1 text-xs text-amber-200"}>{onu.state}</span></td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
       <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-        <div className="mb-3 flex flex-wrap justify-between gap-2"><h2 className="font-semibold">ONUs detectadas na PON {VALIDATED_PON}</h2><span className="text-xs text-slate-400">{collectedAt ? "Última coleta: " + new Date(collectedAt).toLocaleString("pt-BR") : "Aguardando coleta"}</span></div>
+        <div className="mb-3 flex flex-wrap justify-between gap-2"><h2 className="font-semibold">ONUs já cadastradas no banco</h2><span className="text-xs text-slate-400">{collectedAt ? "Última coleta: " + new Date(collectedAt).toLocaleString("pt-BR") : "Aguardando coleta"}</span></div>
         <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="text-xs text-slate-400"><tr><th className="p-2">ONU</th><th className="p-2">Serial</th><th className="p-2">Estado OLT</th><th className="p-2">Cliente</th><th className="p-2">Plano</th><th className="p-2">PON</th><th className="p-2"></th></tr></thead><tbody>{onus.map(o => <tr key={o.id} className="border-t border-white/5"><td className="p-2">{o.onu_number ?? "—"}</td><td className="p-2 font-mono">{o.serial_number}</td><td className="p-2"><span className={stateText(o) === "UP" || stateText(o) === "ONLINE" ? "rounded-full bg-emerald-400/10 px-2 py-1 text-xs text-emerald-300" : "rounded-full bg-rose-400/10 px-2 py-1 text-xs text-rose-300"}>{stateText(o)}</span></td><td className="p-2">{customerName(o.customer_id)}</td><td className="p-2">{planName(o.service_plan_id)}</td><td className="p-2">{ponName(o.pon_port_id)}</td><td className="p-2"><button onClick={() => {setSelected(o.id);setCustomerId(o.customer_id ?? "");setPlanId(o.service_plan_id ?? "");setTargetPonId(o.pon_port_id ?? pons[0]?.id ?? "");}} className="rounded-md border border-cyan-300/30 px-3 py-1.5 text-xs text-cyan-200">Preparar</button></td></tr>)}</tbody></table></div>
-        <p className="mt-3 text-xs text-slate-500">Nesta versão, somente a PON 1/1/2 foi validada para coleta ao vivo. Outras PONs só entram na lista de destino quando cadastradas e validadas.</p>
+        <p className="mt-3 text-xs text-slate-500">Esta tabela mostra apenas registros já existentes no banco; a descoberta ao vivo acima é independente e não cria nem atualiza esses cadastros.</p>
       </section>
       {currentOnu && <section className="rounded-xl border border-cyan-300/20 bg-cyan-300/[0.04] p-4"><h2 className="font-semibold">Preparar solicitação • {currentOnu.serial_number}</h2><div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         <label className="text-xs text-slate-300">Cliente<select value={customerId} onChange={e=>setCustomerId(e.target.value)} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="">Selecionar cliente</option>{customers.map(c=><option key={c.id} value={c.id}>{c.full_name}{c.document_number ? " • "+c.document_number : ""}</option>)}</select></label>
@@ -258,7 +226,7 @@ function AutoProvisioning() {
         <label className="text-xs text-slate-300">Perfil<select value={profile} onChange={e=>setProfile(e.target.value as "bridge"|"router")} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="bridge">Bridge</option><option value="router">Router</option></select></label>
       </div><div className="mt-4 flex flex-wrap gap-2"><button disabled={saving} onClick={()=>void prepareRequest()} className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">{saving ? "Salvando..." : "Enviar para aprovação"}</button><button onClick={()=>setSelected("")} className="rounded-lg border border-white/10 px-4 py-2 text-sm">Cancelar</button></div></section>}
       <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><h2 className="mb-3 font-semibold">Fila de aprovação</h2><div className="space-y-3">{requests.length===0 && <p className="text-sm text-slate-500">Nenhuma solicitação registrada.</p>}{requests.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 p-3"><div><div className="font-mono text-sm">{String(r.request_payload["serial_number"] ?? r.onu_id)}</div><div className="mt-1 text-xs text-slate-400">Perfil {r.profile_type.toUpperCase()} • Destino {String(r.request_payload["target_pon"] ?? "não definido")} • {new Date(r.created_at).toLocaleString("pt-BR")}</div><div className="mt-1 text-xs text-slate-400">Status: {r.status}</div></div>{r.status==="pending_approval" && <div className="flex gap-2"><button disabled={saving} onClick={()=>void decideRequest(r,"approved")} className="rounded-md bg-emerald-500/15 px-3 py-2 text-xs text-emerald-300">Aprovar</button><button disabled={saving} onClick={()=>void decideRequest(r,"rejected")} className="rounded-md bg-rose-500/15 px-3 py-2 text-xs text-rose-300">Rejeitar</button></div>}</div>)}</div></section>
-      <p className="text-xs text-slate-500">Atualização automática a cada 30 segundos enquanto o agente estiver conectado. As observações são persistidas no banco Lovable Cloud existente.</p>
+      <p className="text-xs text-slate-500">A descoberta GPON só ocorre ao clicar em Buscar agora. A coleta é somente leitura e não grava dados; solicitações e decisões administrativas são ações separadas.</p>
     </div>
   </main>;
 }
