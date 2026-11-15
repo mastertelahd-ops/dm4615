@@ -46,3 +46,10 @@ O agente .NET 8 está em `src/agent`. Ele escuta somente em `127.0.0.1:17861`, v
 Consulte [src/agent/README.md](src/agent/README.md) para configuração local. Credenciais devem permanecer em variáveis de ambiente no Windows; nunca as grave no Git. As consultas CLI só são anunciadas quando `DM4615_ENABLE_READ_COMMANDS=true`. Escrita, provisionamento e reboot permanecem bloqueados.
 
 O agente libera `/health` e a resposta vazia `/favicon.ico` sem autenticação; todas as rotas operacionais exigem token. A origem CORS deve estar na allowlist exata. Não exponha o serviço fora do loopback.
+
+## Integração com o agente Windows (16 PONs)
+- O painel varre 1/1/1 a 1/1/16 via `GET /olt/gpon/onu?pon=1/1/N` (3 consultas em paralelo, a cada 60 s) e usa o campo `parsed` do agente. Formatos aceitos: lista ou `{ onus: [...] }`, com `onuId|id`, `serial|serialNumber`, `state|status`. Se `parsed` não for reconhecido, o painel tenta ler a saída bruta. Se mesmo assim não houver ONUs, a PON aparece como vazia. Nenhum dado é inventado.
+- Origens CORS que o agente deve permitir: preview, publicado e `https://5048035b-5812-5d98-a874-ee5a764cc22d.lovableproject.com` (editor). O agente precisa responder `Access-Control-Allow-Private-Network: true`. No Chrome e no Edge, aceite o pedido de "acesso à rede local". Firefox e Safari podem bloquear chamadas a `http://127.0.0.1` a partir de HTTPS.
+- Erros `problem+json` do agente (`detail`) são exibidos ao usuário.
+- A descoberta em Autoprovisionamento está em modo **somente leitura**: nada é gravado no banco (`PERSIST_DISCOVERY = false`).
+- `agent/app.py` é legado: o contrato atual é o agente .NET em `src/agent/`.
