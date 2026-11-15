@@ -56,12 +56,7 @@ export interface CollectResult {
 }
 
 export type FailReason =
-  | "invalid-url"
-  | "timeout"
-  | "network"
-  | "unauthorized"
-  | "http"
-  | "bad-response";
+  "invalid-url" | "timeout" | "network" | "unauthorized" | "http" | "bad-response";
 
 export type HealthResult =
   | { ok: true; info: HealthInfo; latencyMs: number }
@@ -124,7 +119,8 @@ export async function checkHealth(baseUrl: string): Promise<HealthResult> {
   } catch (e) {
     return { ok: false, ...fetchFailure(e, 5000) };
   }
-  if (!res.ok) return { ok: false, reason: "http", message: `/health respondeu HTTP ${res.status}.` };
+  if (!res.ok)
+    return { ok: false, reason: "http", message: `/health respondeu HTTP ${res.status}.` };
   try {
     const body = (await res.json()) as Partial<HealthInfo> & { capabilities?: unknown };
     const all = Array.isArray(body.capabilities) ? body.capabilities.map(String) : [];
@@ -165,7 +161,11 @@ export async function testOltConnection(
     return { ok: false, ...fetchFailure(e, 15000) };
   }
   if (res.status === 401 || res.status === 403)
-    return { ok: false, reason: "unauthorized", message: "Token inválido: o agente recusou o acesso." };
+    return {
+      ok: false,
+      reason: "unauthorized",
+      message: "Token inválido: o agente recusou o acesso.",
+    };
   if (!res.ok)
     return { ok: false, reason: "http", message: `Teste de conexão respondeu HTTP ${res.status}.` };
   try {
@@ -236,11 +236,23 @@ export function createAgentClient(baseUrl: string, token: string, caps: Capabili
   return {
     gponInterface: async (pon: string) => {
       assertPon(pon);
-      return call(base, token, caps, "gpon.interface.read", `/olt/gpon/interface?pon=${encodeURIComponent(pon)}`);
+      return call(
+        base,
+        token,
+        caps,
+        "gpon.interface.read",
+        `/olt/gpon/interface?pon=${encodeURIComponent(pon)}`,
+      );
     },
     gponOnus: async (pon: string) => {
       assertPon(pon);
-      return call(base, token, caps, "gpon.onu.read", `/olt/gpon/onu?pon=${encodeURIComponent(pon)}`);
+      return call(
+        base,
+        token,
+        caps,
+        "gpon.onu.read",
+        `/olt/gpon/onu?pon=${encodeURIComponent(pon)}`,
+      );
     },
     cliRead: async (command: string) => {
       if (!(READ_ONLY_COMMANDS as readonly string[]).includes(command))
