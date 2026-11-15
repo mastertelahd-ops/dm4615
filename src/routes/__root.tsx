@@ -82,10 +82,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "DM4615 | Gestão de OLT" },
-      { name: "description", content: "Gestão de infraestrutura óptica e provisionamento multi-fabricante." },
+      {
+        name: "description",
+        content: "Gestão de infraestrutura óptica e provisionamento multi-fabricante.",
+      },
       { name: "author", content: "Lovable" },
       { property: "og:title", content: "DM4615 | Gestão de OLT" },
-      { property: "og:description", content: "Gestão de infraestrutura óptica e provisionamento multi-fabricante." },
+      {
+        property: "og:description",
+        content: "Gestão de infraestrutura óptica e provisionamento multi-fabricante.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
