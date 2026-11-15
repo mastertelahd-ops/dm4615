@@ -36,8 +36,8 @@ bun run test && bun run lint && bun run build
 ## Modo demonstração
 Ativado no menu lateral. Exibe somente dados fictícios marcados "SIMULAÇÃO — NÃO SÃO DADOS DA OLT" e não chama o agente.
 
-## Atualização automática
-Opcional a cada 30 s na tela GPON/ONUs; pausa quando a aba fica inativa.
+## Atualização
+A varredura geral das 16 PONs é manual e iniciada pelo usuário. As consultas detalhadas de interface, ONUs e terminal também são acionadas por clique; não há coleta automática em segundo plano.
 
 ## Agente Windows — integração GPON de leitura
 
