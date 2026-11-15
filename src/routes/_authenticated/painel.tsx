@@ -14,7 +14,7 @@ import {
   TerminalSquare,
   X,
 } from "lucide-react";
-import { AgentProvider, useAgent } from "@/lib/agent-context";
+import { useAgent } from "@/lib/agent-context";
 import {
   AGENT_ROUTES,
   AgentUnavailableError,
@@ -41,11 +41,7 @@ export const Route = createFileRoute("/_authenticated/painel")({
       { name: "twitter:card", content: "summary" },
     ],
   }),
-  component: () => (
-    <AgentProvider>
-      <Index />
-    </AgentProvider>
-  ),
+  component: Index,
 });
 
 const nav = [
