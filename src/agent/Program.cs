@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Renci.SshNet;
@@ -130,7 +131,7 @@ app.MapGet("/olt/gpon/interface", async (string pon, IConfiguration configuratio
 app.MapGet("/olt/gpon/onu", async (string pon, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (!commandsEnabled) return Results.Problem("Consultas CLI estão desabilitadas. Ative DM4615_ENABLE_READ_COMMANDS=true após validar a CLI.", statusCode: 503);
-    if (pon != "1/1/2") return Results.BadRequest(new { error = "Nesta versão, somente a PON 1/1/2 foi validada." });
+    if (!IsSupportedPon(pon)) return Results.BadRequest(new { error = "PON inválida. Informe uma interface física entre 1/1/1 e 1/1/16." });
     return await RunReadCommand(configuration, $"show interface gpon {pon} onu", cancellationToken);
 });
 
@@ -168,12 +169,103 @@ static async Task<IResult> RunReadCommand(IConfiguration configuration, string c
         var raw = await Task.Run(cmd.Execute, cancellationToken);
         if (!string.IsNullOrWhiteSpace(cmd.Error))
             throw new InvalidOperationException("A OLT retornou erro na consulta: " + cmd.Error.Trim());
-        return new { command, collectedAt = DateTimeOffset.UtcNow, raw, parsed = (object?)null };
+        return new { command, collectedAt = DateTimeOffset.UtcNow, raw, parsed = ParseGponOutput(command, raw) };
     }, cancellationToken);
 
     return result.Success
         ? Results.Ok(result.Value)
         : Results.Problem(result.Error, statusCode: result.StatusCode);
+}
+
+static object ParseGponOutput(string command, string raw)
+{
+    var ponMatch = Regex.Match(command, @"gpon\s+(?<pon>1/1/\d+)", RegexOptions.IgnoreCase);
+    var pon = ponMatch.Success ? ponMatch.Groups["pon"].Value : null;
+
+    if (command.EndsWith(" onu", StringComparison.OrdinalIgnoreCase))
+    {
+        var rows = Regex.Matches(
+            raw,
+            @"^[ \t]*(?<pon>1/1/\d+)[ \t]+(?<id>\d+)[ \t]+(?<serial>\S+)[ \t]+(?<state>\S+)[ \t]+(?<download>\S+)[ \t]*(?<name>[^\r\n]*?)[ \t]*$",
+            RegexOptions.Multiline);
+
+        var onus = rows
+            .Select(row => new
+            {
+                pon = row.Groups["pon"].Value,
+                onuId = int.TryParse(row.Groups["id"].Value, out var id) ? id : 0,
+                serialNumber = row.Groups["serial"].Value,
+                operState = row.Groups["state"].Value,
+                softwareDownloadState = row.Groups["download"].Value,
+                name = row.Groups["name"].Value.Trim()
+            })
+            .ToArray();
+
+        return new
+        {
+            kind = "gpon-onus",
+            pon,
+            onuCount = onus.Length,
+            onus,
+            parseStatus = "ok"
+        };
+    }
+
+    var physical = Regex.Match(
+        raw,
+        @"Physical interface\s*:\s*gpon\s+(?<pon>1/1/\d+)\s*,\s*(?<admin>[^,]+),\s*Physical link is\s*(?<oper>\S+)",
+        RegexOptions.IgnoreCase);
+
+    var overhead = Regex.Match(
+        raw,
+        @"Overhead\s*:\s*(?<value>\d+)\s+kbit/s\s*\((?<onus>\d+)\s+ONUs?\)",
+        RegexOptions.IgnoreCase);
+
+    return new
+    {
+        kind = "gpon-interface",
+        pon = physical.Success ? physical.Groups["pon"].Value : pon,
+        adminState = physical.Success ? physical.Groups["admin"].Value.Trim() : null,
+        operState = physical.Success ? physical.Groups["oper"].Value.Trim() : null,
+        linkLevelType = ReadField(raw, "Link-level type"),
+        logicalReach = ReadField(raw, "Logical reach"),
+        downstreamFec = ReadField(raw, "Downstream FEC"),
+        upstreamFec = ReadField(raw, "Upstream FEC"),
+        transceiverType = ReadField(raw, "Transceiver type"),
+        allocatedUpstream = new
+        {
+            maxKbit = ReadLongField(raw, "Max"),
+            overheadKbit = overhead.Success && long.TryParse(overhead.Groups["value"].Value, out var overheadValue)
+                ? overheadValue : (long?)null
+        },
+        availableUpstream = new
+        {
+            cbrKbit = ReadLongField(raw, "CBR BW"),
+            totalKbit = ReadLongField(raw, "Total BW")
+        },
+        onuCount = overhead.Success && int.TryParse(overhead.Groups["onus"].Value, out var onuCount)
+            ? onuCount : (int?)null,
+        parseStatus = physical.Success ? "ok" : "partial"
+    };
+}
+
+static string? ReadField(string raw, string label)
+{
+    var match = Regex.Match(
+        raw,
+        @"^\s*" + Regex.Escape(label) + @"\s*:\s*(?<value>.*?)\s*$",
+        RegexOptions.Multiline | RegexOptions.IgnoreCase);
+    return match.Success ? match.Groups["value"].Value.Trim() : null;
+}
+
+static long? ReadLongField(string raw, string label)
+{
+    var value = ReadField(raw, label);
+    var match = value is null
+        ? Match.Empty
+        : Regex.Match(value, @"(?<value>\d+)");
+    return match.Success && long.TryParse(match.Groups["value"].Value, out var parsed)
+        ? parsed : null;
 }
 
 static async Task<SshResult<T>> WithSsh<T>(
