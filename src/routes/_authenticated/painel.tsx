@@ -150,6 +150,7 @@ function Index() {
               </div>
             </div>
           </div>
+          <a href="/cadastros" className="shrink-0 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20">Cadastros</a>
           {demo ? (
             <span className="rounded-full border border-fuchsia-400/30 bg-fuchsia-400/10 px-3 py-1.5 text-[10px] font-bold text-fuchsia-200">
               SIMULAÇÃO
