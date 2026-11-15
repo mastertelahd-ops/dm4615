@@ -5,8 +5,20 @@ import { supabase } from "@/integrations/supabase/client";
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) throw redirect({ to: "/auth" });
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) throw redirect({ to: "/auth" });
+
+    // Authentication alone is not authorization: require an active admin profile.
+    const { data: profile, error: profileError } = await supabase
+      .from("admin_profiles")
+      .select("role, is_active")
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+
+    if (profileError || !profile || profile.role !== "admin" || !profile.is_active) {
+      await supabase.auth.signOut();
+      throw redirect({ to: "/auth" });
+    }
   },
   component: Layout,
 });
@@ -14,12 +26,14 @@ export const Route = createFileRoute("/_authenticated")({
 function Layout() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+
   async function signOut() {
     await qc.cancelQueries();
     qc.clear();
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
   }
+
   return (
     <>
       <button
