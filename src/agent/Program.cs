@@ -186,7 +186,7 @@ static object ParseGponOutput(string command, string raw)
     {
         var rows = Regex.Matches(
             raw,
-            @"^\s*(?<pon>1/1/\d+)\s+(?<id>\d+)\s+(?<serial>\S+)\s+(?<state>\S+)\s+(?<download>\S+)\s*(?<name>.*?)\s*$",
+            @"^[ \t]*(?<pon>1/1/\d+)[ \t]+(?<id>\d+)[ \t]+(?<serial>\S+)[ \t]+(?<state>\S+)[ \t]+(?<download>\S+)[ \t]*(?<name>[^\r\n]*?)[ \t]*$",
             RegexOptions.Multiline);
 
         var onus = rows
