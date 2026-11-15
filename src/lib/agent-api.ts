@@ -3,10 +3,9 @@
 export const DEFAULT_AGENT_URL = "http://127.0.0.1:17861";
 export const AGENT_URL_STORAGE_KEY = "dm4615.agentUrl";
 
-/** Única PON validada no agente atual. Nenhuma consulta é enviada para outras PONs. */
+/** Portas físicas identificadas no chassi. A coleta só será considerada válida após resposta individual da OLT. */
 export const VALIDATED_PON = "1/1/2";
-/** Inventário visual (não consultado). */
-export const PON_INVENTORY = Array.from({ length: 10 }, (_, i) => `1/1/${i + 1}`);
+export const PON_INVENTORY = Array.from({ length: 16 }, (_, i) => `1/1/${i + 1}`);
 
 export type Capability = "gpon.interface.read" | "gpon.onu.read" | "cli.read";
 
@@ -227,8 +226,8 @@ async function call(
 }
 
 function assertPon(pon: string) {
-  if (pon !== VALIDATED_PON)
-    throw new AgentUnavailableError(`PON ${pon} não validada: consultas bloqueadas.`);
+  if (!/^1\/1\/(?:[1-9]|1[0-6])$/.test(pon))
+    throw new AgentUnavailableError(`Identificador de PON inválido ou fora do chassi: ${pon}.`);
 }
 
 export function createAgentClient(baseUrl: string, token: string, caps: Capability[]) {
@@ -255,8 +254,8 @@ export function createAgentClient(baseUrl: string, token: string, caps: Capabili
       );
     },
     cliRead: async (command: string) => {
-      if (!(READ_ONLY_COMMANDS as readonly string[]).includes(command))
-        throw new Error("Comando fora da allowlist somente leitura.");
+      if (!/^show interface gpon 1\/1\/(?:[1-9]|1[0-6])(?: onu)?$/.test(command))
+        throw new Error("Comando fora da allowlist somente leitura GPON.");
       return call(base, token, caps, "cli.read", "/olt/cli/read", {
         method: "POST",
         body: JSON.stringify({ command }),
