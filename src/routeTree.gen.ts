@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated/painel'
 import { Route as AuthenticatedCadastrosRouteImport } from './routes/_authenticated/cadastros'
+import { Route as AuthenticatedAutoprovisionamentoRouteImport } from './routes/_authenticated/autoprovisionamento'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,6 +35,11 @@ const AuthenticatedCadastrosRoute = AuthenticatedCadastrosRouteImport.update({
   path: '/cadastros',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAutoprovisionamentoRoute = AuthenticatedAutoprovisionamentoRouteImport.update({
+  id: '/autoprovisionamento',
+  path: '/autoprovisionamento',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPainelRoute = AuthenticatedPainelRouteImport.update({
   id: '/painel',
   path: '/painel',
@@ -45,11 +51,14 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/painel': typeof AuthenticatedPainelRoute
   '/cadastros': typeof AuthenticatedCadastrosRoute
+  '/autoprovisionamento': typeof AuthenticatedAutoprovisionamentoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/painel': typeof AuthenticatedPainelRoute
+  '/cadastros': typeof AuthenticatedCadastrosRoute
+  '/autoprovisionamento': typeof AuthenticatedAutoprovisionamentoRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -58,13 +67,14 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/painel': typeof AuthenticatedPainelRoute
   '/_authenticated/cadastros': typeof AuthenticatedCadastrosRoute
+  '/_authenticated/autoprovisionamento': typeof AuthenticatedAutoprovisionamentoRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/painel' | '/cadastros'
+  fullPaths: '/' | '/auth' | '/painel' | '/cadastros' | '/autoprovisionamento'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/painel' | '/cadastros'
-  id: '__root__' | '/' | '/_authenticated' | '/auth' | '/_authenticated/painel' | '/_authenticated/cadastros'
+  to: '/' | '/auth' | '/painel' | '/cadastros' | '/autoprovisionamento'
+  id: '__root__' | '/' | '/_authenticated' | '/auth' | '/_authenticated/painel' | '/_authenticated/cadastros' | '/_authenticated/autoprovisionamento'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -103,6 +113,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCadastrosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/autoprovisionamento': {
+      id: '/_authenticated/autoprovisionamento'
+      path: '/autoprovisionamento'
+      fullPath: '/autoprovisionamento'
+      preLoaderRoute: typeof AuthenticatedAutoprovisionamentoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/painel': {
       id: '/_authenticated/painel'
       path: '/painel'
@@ -116,11 +133,13 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedPainelRoute: typeof AuthenticatedPainelRoute
   AuthenticatedCadastrosRoute: typeof AuthenticatedCadastrosRoute
+  AuthenticatedAutoprovisionamentoRoute: typeof AuthenticatedAutoprovisionamentoRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedPainelRoute: AuthenticatedPainelRoute,
   AuthenticatedCadastrosRoute: AuthenticatedCadastrosRoute,
+  AuthenticatedAutoprovisionamentoRoute: AuthenticatedAutoprovisionamentoRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
