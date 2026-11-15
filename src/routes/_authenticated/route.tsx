@@ -1,3 +1,4 @@
+import { AgentProvider } from "@/lib/agent-context";
 import { createFileRoute, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,6 +36,7 @@ function Layout() {
   }
 
   return (
+    <AgentProvider>
     <>
       <button
         onClick={signOut}
@@ -44,5 +46,6 @@ function Layout() {
       </button>
       <Outlet />
     </>
+    </AgentProvider>
   );
 }
