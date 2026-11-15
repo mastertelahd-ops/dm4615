@@ -59,18 +59,18 @@ export function parseOnus(parsed: unknown): OnuInfo[] | null {
   const list = Array.isArray(parsed)
     ? parsed
     : rec && typeof rec === "object"
-      ? (rec.onus ?? rec.items ?? rec.onuList)
+      ? (rec["onus"] ?? rec["items"] ?? rec["onuList"])
       : null;
   if (!Array.isArray(list)) return null;
   const out: OnuInfo[] = [];
   for (const it of list) {
     if (!it || typeof it !== "object") continue;
     const o = it as Record<string, unknown>;
-    const serial = o.serial ?? o.serialNumber ?? o.serial_number ?? o.sn;
+    const serial = o["serial"] ?? o["serialNumber"] ?? o["serial_number"] ?? o["sn"];
     if (typeof serial !== "string" || !serial.trim()) continue;
-    const idRaw = o.onuId ?? o.onu_id ?? o.id ?? o.onu;
+    const idRaw = o["onuId"] ?? o["onu_id"] ?? o["id"] ?? o["onu"];
     const id = idRaw === undefined || idRaw === null ? NaN : Number(idRaw);
-    const state = o.state ?? o.status ?? o.operState ?? o.oper_state ?? o.operStatus;
+    const state = o["state"] ?? o["status"] ?? o["operState"] ?? o["oper_state"] ?? o["operStatus"];
     out.push({
       onuId: Number.isFinite(id) ? id : null,
       serial: serial.trim(),
@@ -109,7 +109,7 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Pr
 async function problemDetail(res: Response): Promise<string | null> {
   try {
     const b = (await res.json()) as Record<string, unknown>;
-    const d = b.detail ?? b.error ?? b.title;
+    const d = b["detail"] ?? b["error"] ?? b["title"];
     return typeof d === "string" && d.trim() ? d.trim() : null;
   } catch {
     return null;

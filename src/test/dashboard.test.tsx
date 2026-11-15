@@ -14,10 +14,10 @@ describe("dashboard", () => {
       </AgentProvider>,
     );
     expect(screen.getByText(/AGENTE DESCONHECIDO/)).toBeInTheDocument();
+    expect(screen.getAllByText("1/1/16").length).toBeGreaterThan(0);
+    expect(screen.queryByText("ZTEGC4FFAB0A")).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: /Modo demonstração/ }));
     expect(screen.getByText("SIMULAÇÃO — NÃO SÃO DADOS DA OLT")).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
-    expect(screen.getAllByText("1/1/16").length).toBeGreaterThan(0);
-    expect(screen.queryByText("ZTEGC4FFAB0A")).toBeNull();
   });
 });
