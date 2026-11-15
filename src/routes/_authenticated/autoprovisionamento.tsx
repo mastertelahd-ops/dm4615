@@ -2,7 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAgent } from "@/lib/agent-context";
-import { VALIDATED_PON } from "@/lib/agent-api";
+import { VALIDATED_PON, onusFrom } from "@/lib/agent-api";
+
+/** Gravação da descoberta no banco desativada nesta etapa (somente leitura). */
+const PERSIST_DISCOVERY = false;
 
 type Customer = { id: string; full_name: string; document_number: string | null };
 type Plan = { id: string; name: string; download_mbps: number; upload_mbps: number; price: number | null };
@@ -59,10 +62,14 @@ function AutoProvisioning() {
     setError("");
     try {
       const result = await client.gponOnus(VALIDATED_PON);
-      const parsed: { onuNumber: number; serial: string; state: "Up" | "Down" }[] = [];
-      const line = /^\s*1\/1\/2\s+(\d+)\s+([A-Z0-9]+)\s+(Up|Down)\b/gim;
-      for (const m of result.raw.matchAll(line)) parsed.push({ onuNumber: Number(m[1]), serial: m[2], state: m[3] as "Up" | "Down" });
+      const parsed = (onusFrom(result, VALIDATED_PON) ?? []).map((o) => ({ onuNumber: o.onuId ?? 0, serial: o.serial, state: /^up$|online/i.test(o.state) ? "Up" as const : "Down" as const }));
       if (!parsed.length) throw new Error("A OLT respondeu, mas nenhuma ONU foi reconhecida no formato esperado. Nenhum status foi alterado.");
+      if (!PERSIST_DISCOVERY) {
+        setCollectedAt(result.collectedAt);
+        setNotice(`Leitura concluída (somente leitura, nada gravado): ${parsed.map((o) => `${o.serial} ${o.state}`).join(", ")}.`);
+        log("ok", "Descoberta GPON", `${parsed.length} ONU(s) lidas em ${VALIDATED_PON} (sem gravação)`);
+        return;
+      }
 
       const { data: olt, error: oltError } = await supabase.from("olt_devices").upsert({
         name: "OLT principal",

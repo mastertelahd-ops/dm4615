@@ -108,3 +108,45 @@ describe("agent api", () => {
     expect(DEMO_DATA.onus.every((o) => o.serial.startsWith("DEMO"))).toBe(true);
   });
 });
+
+import { PON_LIST, onusFrom, parseOnus, READ_ONLY_COMMANDS } from "@/lib/agent-api";
+
+describe("16 PONs e parsed", () => {
+  it("aceita 1/1/16 e bloqueia 1/1/17 e 2/1/1 sem fetch", async () => {
+    const f = vi.fn().mockResolvedValue(json({ command: "x", raw: "", parsed: [] }));
+    vi.stubGlobal("fetch", f);
+    const c = createAgentClient(DEFAULT_AGENT_URL, "t", ["gpon.onu.read"]);
+    expect(PON_LIST).toHaveLength(16);
+    await c.gponOnus("1/1/16");
+    expect(f.mock.calls[0]![0]).toBe("http://127.0.0.1:17861/olt/gpon/onu?pon=1%2F1%2F16");
+    await expect(c.gponOnus("1/1/17")).rejects.toBeInstanceOf(AgentUnavailableError);
+    await expect(c.gponOnus("2/1/1")).rejects.toBeInstanceOf(AgentUnavailableError);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+  it("parsed da 1/1/2 gera as 2 ONUs reais", () => {
+    const onus = parseOnus({
+      onus: [
+        { onuId: 1, serial: "ZTEGC4FFAB0A", state: "Up" },
+        { id: "2", serialNumber: "ZYXE8CAF45DD", status: "Down" },
+      ],
+    });
+    expect(onus).toEqual([
+      { onuId: 1, serial: "ZTEGC4FFAB0A", state: "Up" },
+      { onuId: 2, serial: "ZYXE8CAF45DD", state: "Down" },
+    ]);
+  });
+  it("parsed inválido e raw vazio não produzem dados", () => {
+    expect(parseOnus("lixo")).toBeNull();
+    expect(onusFrom({ command: "", collectedAt: "", raw: "", parsed: null }, "1/1/2")).toBeNull();
+  });
+  it("detail do 503 aparece na mensagem", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ detail: "Consultas CLI estão desabilitadas." }, 503)));
+    await expect(
+      createAgentClient(DEFAULT_AGENT_URL, "t", ["gpon.onu.read"]).gponOnus("1/1/2"),
+    ).rejects.toThrow("Consultas CLI estão desabilitadas.");
+  });
+  it("allowlist só tem comandos show das 16 PONs", () => {
+    expect(READ_ONLY_COMMANDS).toHaveLength(32);
+    expect(READ_ONLY_COMMANDS.every((c) => c.startsWith("show interface gpon 1/1/"))).toBe(true);
+  });
+});

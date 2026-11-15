@@ -53,7 +53,6 @@ const nav = [
   { label: "Eventos/diagnóstico", icon: Activity },
 ] as const;
 type Section = (typeof nav)[number]["label"];
-const fmt = (n: number) => n.toLocaleString("pt-BR");
 
 function Index() {
   const [active, setActive] = useState<Section>("Visão geral");
@@ -231,13 +230,6 @@ function Card({
       </div>
       {children}
     </div>
-  );
-}
-function ManualBadge() {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/20 bg-amber-400/[0.07] px-2 py-1 text-[10px] font-medium text-amber-300">
-      Última coleta manual confirmada
-    </span>
   );
 }
 function Notice({
