@@ -380,7 +380,7 @@ function CollectView({ c, cap }: { c: ReturnType<typeof useCollect>; cap: Capabi
 /* ---------- seções ---------- */
 function Overview({ go }: { go: (s: Section) => void }) {
   const { online, health, lastCheck } = useAgent();
-  const up = S.onus.filter((o) => o.status === "Up").length;
+  const up = S.onus.filter((o) => (o.status as string) === "Up").length;
   return (
     <>
       <Title
