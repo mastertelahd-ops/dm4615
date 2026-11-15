@@ -18,14 +18,16 @@ import { useAgent } from "@/lib/agent-context";
 import {
   AGENT_ROUTES,
   AgentUnavailableError,
-  PON_INVENTORY,
+  PON_LIST,
   READ_ONLY_COMMANDS,
+  mapLimit,
+  onusFrom,
+  type OnuInfo,
   VALIDATED_PON,
   isLoopback,
   type Capability,
   type CollectResult,
 } from "@/lib/agent-api";
-import { MANUAL_SNAPSHOT as S } from "@/lib/olt-snapshot";
 import { DEMO_DATA as D, DEMO_LABEL } from "@/lib/demo-data";
 import { AUTO_REFRESH_MS, useAutoRefresh } from "@/lib/use-auto-refresh";
 
@@ -376,22 +378,79 @@ function CollectView({ c, cap }: { c: ReturnType<typeof useCollect>; cap: Capabi
 }
 
 /* ---------- seções ---------- */
-function Overview({ go }: { go: (s: Section) => void }) {
+type PonScan = {
+  pon: string;
+  status: "pendente" | "ok" | "erro";
+  onus: OnuInfo[] | null;
+  error?: string;
+  collectedAt?: string;
+};
+
+/** Varre as 16 PONs via agente (concorrência 3). Nada é inventado: falhas ficam marcadas por PON. */
+function usePonScan() {
+  const { client, online, health, log } = useAgent();
+  const available =
+    online && health?.ok === true && health.info.capabilities.includes("gpon.onu.read");
+  const [scans, setScans] = useState<PonScan[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [at, setAt] = useState<Date | null>(null);
+  const refresh = useCallback(async () => {
+    if (!available) return;
+    setLoading(true);
+    const res = await mapLimit(PON_LIST, 3, async (pon): Promise<PonScan> => {
+      try {
+        const r = await client.gponOnus(pon);
+        const onus = onusFrom(r, pon);
+        return {
+          pon,
+          status: "ok",
+          onus: onus ?? [],
+          collectedAt: r.collectedAt,
+          ...(onus === null && !r.raw.trim() ? {} : {}),
+        };
+      } catch (e) {
+        return { pon, status: "erro", onus: null, error: e instanceof Error ? e.message : "Falha" };
+      }
+    });
+    setScans(res);
+    setAt(new Date());
+    setLoading(false);
+    const total = res.reduce((n, s) => n + (s.onus?.length ?? 0), 0);
+    const fails = res.filter((s) => s.status === "erro").length;
+    log(fails ? "erro" : "ok", "Varredura 16 PONs", `${total} ONU(s); ${fails} PON(s) com falha`);
+  }, [available, client, log]);
+  useEffect(() => {
+    if (available) void refresh();
+    else setScans([]);
+  }, [available, refresh]);
+  useAutoRefresh(available, refresh, 60_000);
+  return { scans, loading, at, available, refresh, online };
+}
+
+function Overview({ go, scan }: { go: (s: Section) => void; scan: ReturnType<typeof usePonScan> }) {
   const { online, health, lastCheck } = useAgent();
+  const all = scan.scans.flatMap((s) => s.onus ?? []);
+  const up = all.filter((o) => /^up$|online/i.test(o.state)).length;
+  const ponsWithOnu = scan.scans.filter((s) => (s.onus?.length ?? 0) > 0).length;
   return (
     <>
       <Title
         kicker="Network operations center"
         title="Visão geral"
-        desc="Somente dados reais. Sem agente, exibimos apenas a última coleta manual confirmada."
+        desc="Somente dados reais lidos pelo agente local. Sem agente, nada é exibido como ao vivo."
       />
       {!online && (
         <Notice>
-          Agente não conectado. Os dados abaixo são da <b>última coleta manual</b> e não indicam que
-          a OLT esteja online agora.{" "}
+          Agente não conectado: nenhum dado da OLT está sendo exibido.{" "}
           <button className="font-semibold text-cyan-300" onClick={() => go("Conexão do agente")}>
             Conectar agente →
           </button>
+        </Notice>
+      )}
+      {online && !scan.available && (
+        <Notice tone="slate">
+          O agente está online, mas não anunciou <span className="font-mono">gpon.onu.read</span>.
+          Ative <span className="font-mono">DM4615_ENABLE_READ_COMMANDS=true</span> no agente.
         </Notice>
       )}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -401,128 +460,134 @@ function Overview({ go }: { go: (s: Section) => void }) {
             v={<Status value={online ? "Online" : health ? "Offline" : "Desconhecido"} />}
           />
         </Card>
-        <Card title="OLT" right={<ManualBadge />}>
-          <KV k={`${S.olt.vendor} ${S.olt.model}`} v={`${S.olt.ip} • SSH ${S.olt.sshPort}`} />
+        <Card title="OLT">
+          <KV k="Datacom DM4615" v="192.168.0.25 • SSH 22" />
         </Card>
-        <Card title="PON validada">
-          <KV k={S.pon.type} v={`${S.pon.id} • ${S.pon.adminState}/${S.pon.operState} (manual)`} />
+        <Card title="PONs com ONU">
+          <KV k="Lidas do agente" v={scan.scans.length ? `${ponsWithOnu} de 16` : "—"} />
         </Card>
-        <Card title={`ONUs na PON ${S.pon.id}`}>
-          <KV k="Status das ONUs" v="Consulte a tabela ao vivo abaixo" />
+        <Card title="ONUs">
+          <KV k="Up / total" v={scan.scans.length ? `${up} / ${all.length}` : "—"} />
         </Card>
       </section>
-      <OnuTable />
+      <PonGrid scan={scan} />
+      <OnuTable scan={scan} />
     </>
   );
 }
 
-function OnuTable() {
-  const { client, online, health, log } = useAgent();
-  const [live, setLive] = useState<Record<string, "Up" | "Down">>({});
-  const [collectedAt, setCollectedAt] = useState<Date | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const available =
-    online && health?.ok === true && health.info.capabilities.includes("gpon.onu.read");
-
-  const refresh = useCallback(async () => {
-    if (!available) {
-      setLive({});
-      setCollectedAt(null);
-      setError("Sem comunicação com o agente/OLT.");
-      return;
-    }
-    try {
-      const result = await client.gponOnus(VALIDATED_PON);
-      const next: Record<string, "Up" | "Down"> = {};
-      const line = /^\s*1\/1\/2\s+(\d+)\s+([A-Z0-9]+)\s+(Up|Down)\b/gim;
-      for (const match of result.raw.matchAll(line)) {
-        next[match[2]] = match[3] as "Up" | "Down";
-      }
-      if (Object.keys(next).length === 0) {
-        throw new Error("A OLT respondeu, mas não foi possível interpretar a lista de ONUs.");
-      }
-      setLive(next);
-      setCollectedAt(new Date(result.collectedAt));
-      setError(null);
-      log("ok", "Atualização automática de ONUs", `${Object.keys(next).length} ONU(s) lida(s) da OLT`);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Falha ao consultar as ONUs.";
-      setLive({});
-      setCollectedAt(null);
-      setError(message);
-      log("erro", "Atualização automática de ONUs", message);
-    }
-  }, [available, client, log]);
-
-  useEffect(() => {
-    if (available) void refresh();
-    else {
-      setLive({});
-      setCollectedAt(null);
-      setError("Sem comunicação: aguardando agente e consulta GPON disponíveis.");
-    }
-  }, [available, refresh]);
-  useAutoRefresh(available, refresh, 30_000);
-
-  const stateLabel = (serial: string) => live[serial] ?? "Desconhecido";
+function PonGrid({ scan }: { scan: ReturnType<typeof usePonScan> }) {
+  const byPon = new Map(scan.scans.map((s) => [s.pon, s]));
   return (
     <Card
-      title={`ONUs na PON ${S.pon.id}`}
-      desc="Status consultado diretamente na OLT, com atualização automática a cada 30 segundos."
+      title="PONs 1/1/1 – 1/1/16"
+      desc="Contagem de ONUs por PON consultada no agente (atualiza a cada 60 s)."
       right={
-        <div className="text-right">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/20 bg-cyan-400/[0.06] px-2 py-1 text-[10px] text-cyan-200">
-            <RefreshCw size={11} /> Ao vivo • 30 s
-          </span>
-          <div className="mt-1 text-[10px] text-slate-500">
-            {collectedAt ? `Última coleta: ${collectedAt.toLocaleTimeString("pt-BR")}` : "Aguardando coleta"}
-          </div>
-        </div>
+        <Btn disabled={!scan.available || scan.loading} onClick={scan.refresh}>
+          {scan.loading ? "Consultando..." : "Atualizar"}
+        </Btn>
       }
     >
-      {error && <div role="status" className="mb-3 rounded-lg border border-amber-400/20 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-200">{error}</div>}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[420px] text-left">
-          <thead>
-            <tr className="text-[10px] uppercase tracking-wider text-slate-500">
-              <th className="py-2 font-medium">ONU ID</th>
-              <th className="py-2 font-medium">Serial</th>
-              <th className="py-2 font-medium">Status real</th>
-            </tr>
-          </thead>
-          <tbody>
-            {S.onus.map((o) => {
-              const status = stateLabel(o.serial);
-              return (
-                <tr key={o.onuId} className="border-t border-white/[0.045] text-xs">
-                  <td className="py-3 font-mono">{o.onuId}</td>
-                  <td className="py-3 font-mono text-slate-300">{o.serial}</td>
-                  <td className="py-3">
-                    <Status value={status} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+        {PON_LIST.map((p) => {
+          const s = byPon.get(p);
+          const n = s?.onus?.length ?? 0;
+          const upN = s?.onus?.filter((o) => /^up$|online/i.test(o.state)).length ?? 0;
+          return (
+            <div
+              key={p}
+              data-testid={`pon-${p}`}
+              title={s?.error}
+              className={`rounded-lg border p-3 ${s?.status === "erro" ? "border-rose-400/30" : n ? "border-cyan-400/30 bg-cyan-400/[0.05]" : "border-white/[0.07]"}`}
+            >
+              <div className="font-mono text-xs font-semibold">{p}</div>
+              <div className="mt-1 text-[10px] text-slate-400">
+                {!s
+                  ? "sem leitura"
+                  : s.status === "erro"
+                    ? "falha na consulta"
+                    : n
+                      ? `${n} ONU • ${upN} up`
+                      : "vazia"}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </Card>
   );
 }
 
-function Gpon() {
+function OnuTable({ scan }: { scan: ReturnType<typeof usePonScan> }) {
+  const rows = scan.scans.flatMap((s) => (s.onus ?? []).map((o) => ({ ...o, pon: s.pon })));
+  const fails = scan.scans.filter((s) => s.status === "erro");
+  return (
+    <Card
+      title="ONUs detectadas (todas as PONs)"
+      desc="Lidas diretamente da OLT pelo agente. Nenhum serial é pré-cadastrado."
+      right={
+        <div className="text-[10px] text-slate-500">
+          {scan.at ? `Última coleta: ${scan.at.toLocaleTimeString("pt-BR")}` : "Aguardando coleta"}
+        </div>
+      }
+    >
+      {!scan.available && (
+        <p role="status" className="mb-3 text-[11px] text-amber-200">
+          Sem comunicação: aguardando agente e consulta GPON disponíveis.
+        </p>
+      )}
+      {fails.length > 0 && (
+        <p role="status" className="mb-3 text-[11px] text-rose-300">
+          Falha em {fails.map((f) => f.pon).join(", ")}: {fails[0]!.error}
+        </p>
+      )}
+      {scan.available && scan.scans.length > 0 && rows.length === 0 && (
+        <p className="text-xs text-slate-500">Nenhuma ONU encontrada nas PONs consultadas.</p>
+      )}
+      {rows.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px] text-left">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-slate-500">
+                <th className="py-2 font-medium">PON</th>
+                <th className="py-2 font-medium">ONU ID</th>
+                <th className="py-2 font-medium">Serial</th>
+                <th className="py-2 font-medium">Status real</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((o) => (
+                <tr key={`${o.pon}-${o.serial}`} className="border-t border-white/[0.045] text-xs">
+                  <td className="py-3 font-mono">{o.pon}</td>
+                  <td className="py-3 font-mono">{o.onuId ?? "—"}</td>
+                  <td className="py-3 font-mono text-slate-300">{o.serial}</td>
+                  <td className="py-3">
+                    <Status value={o.state} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function Gpon({ scan }: { scan: ReturnType<typeof usePonScan> }) {
   const { client } = useAgent();
+  const [pon, setPon] = useState<string>(VALIDATED_PON);
   const [auto, setAuto] = useState(false);
-  const [cmd, setCmd] = useState<string>(READ_ONLY_COMMANDS[0]);
+  const [cmd, setCmd] = useState<string>(READ_ONLY_COMMANDS[0]!);
   const iface = useCollect(
     "gpon.interface.read",
-    useCallback(() => client.gponInterface(VALIDATED_PON), [client]),
-    `Interface ${VALIDATED_PON}`,
+    useCallback(() => client.gponInterface(pon), [client, pon]),
+    `Interface ${pon}`,
   );
   const onus = useCollect(
     "gpon.onu.read",
-    useCallback(() => client.gponOnus(VALIDATED_PON), [client]),
-    `ONUs ${VALIDATED_PON}`,
+    useCallback(() => client.gponOnus(pon), [client, pon]),
+    `ONUs ${pon}`,
   );
   const cli = useCollect(
     "cli.read",
@@ -534,15 +599,20 @@ function Gpon() {
     await Promise.all([iface.available ? iface.run() : null, onus.available ? onus.run() : null]);
   }, [iface, onus]);
   useAutoRefresh(auto && anyAvail, refreshAll);
-  const u = S.pon.upstreamKbps;
   return (
     <>
-      <Title
-        kicker="GPON"
-        title="GPON/ONUs"
-        desc={`Somente a PON ${VALIDATED_PON} é consultada. As demais aparecem como inventário.`}
-      >
+      <Title kicker="GPON" title="GPON/ONUs" desc="Consulta detalhada por PON (1/1/1 a 1/1/16).">
         <div className="flex flex-wrap items-center gap-3">
+          <select
+            aria-label="PON"
+            value={pon}
+            onChange={(e) => setPon(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#080d17] px-3 py-2 font-mono text-xs text-slate-200"
+          >
+            {PON_LIST.map((p) => (
+              <option key={p}>{p}</option>
+            ))}
+          </select>
           <label className="flex items-center gap-2 text-xs text-slate-400">
             <input
               type="checkbox"
@@ -551,36 +621,17 @@ function Gpon() {
               onChange={(e) => setAuto(e.target.checked)}
               className="accent-cyan-400"
             />
-            Atualizar a cada {AUTO_REFRESH_MS / 1000}s (pausa com aba inativa)
+            Atualizar a cada {AUTO_REFRESH_MS / 1000}s
           </label>
           <Btn disabled={!anyAvail || iface.loading || onus.loading} onClick={refreshAll}>
             Atualizar agora
           </Btn>
         </div>
       </Title>
-      <Card
-        title="Inventário de portas PON"
-        desc="Visual. Apenas 1/1/2 está validada; nenhum estado é inferido para as demais."
-      >
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          {PON_INVENTORY.map((p) => (
-            <div
-              key={p}
-              className={`rounded-lg border p-3 ${p === VALIDATED_PON ? "border-cyan-400/30 bg-cyan-400/[0.05]" : "border-white/[0.07]"}`}
-            >
-              <div className="font-mono text-xs font-semibold">{p}</div>
-              <div
-                className={`mt-1 text-[10px] ${p === VALIDATED_PON ? "text-cyan-300" : "text-slate-500"}`}
-              >
-                {p === VALIDATED_PON ? "validada" : "não consultada"}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
+      <PonGrid scan={scan} />
       <section className="grid gap-5 xl:grid-cols-2">
         <Card
-          title={`Interface ${VALIDATED_PON} (ao vivo)`}
+          title={`Interface ${pon} (ao vivo)`}
           right={
             <Btn disabled={!iface.available || iface.loading} onClick={iface.run}>
               {iface.loading ? "Consultando..." : "Consultar"}
@@ -590,7 +641,7 @@ function Gpon() {
           <CollectView c={iface} cap="gpon.interface.read" />
         </Card>
         <Card
-          title={`ONUs ${VALIDATED_PON} (ao vivo)`}
+          title={`ONUs ${pon} (ao vivo)`}
           right={
             <Btn disabled={!onus.available || onus.loading} onClick={onus.run}>
               {onus.loading ? "Listando..." : "Listar ONUs"}
@@ -600,20 +651,8 @@ function Gpon() {
           <CollectView c={onus} cap="gpon.onu.read" />
         </Card>
       </section>
-      <Card
-        title={`PON ${S.pon.id}`}
-        desc="Referência da coleta manual (não é dado ao vivo)."
-        right={<ManualBadge />}
-      >
-        <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          <KV k="Estado físico" v={`${S.pon.adminState} / ${S.pon.operState}`} />
-          <KV k="FEC up / down" v={`${S.pon.fecUpstream} / ${S.pon.fecDownstream}`} />
-          <KV k="Transceiver" v={S.pon.transceiver} />
-          <KV k="Upstream disponível CBR" v={`${fmt(u.availableCbr)} kbit/s`} />
-        </div>
-      </Card>
-      <OnuTable />
-      <Card title="Terminal somente leitura" desc="Apenas os dois comandos da allowlist.">
+      <OnuTable scan={scan} />
+      <Card title="Terminal somente leitura" desc="Somente comandos show da allowlist (16 PONs).">
         <div className="flex flex-col gap-2 sm:flex-row">
           <select
             aria-label="Comando"
