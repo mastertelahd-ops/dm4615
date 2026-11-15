@@ -389,7 +389,7 @@ type PonScan = {
   collectedAt?: string;
 };
 
-/** Varre as 16 PONs via agente (concorrência 3). Nada é inventado: falhas ficam marcadas por PON. */
+/** Varre as 16 PONs via agente (concorrência 4). Nada é inventado: falhas ficam marcadas por PON. */
 function usePonScan() {
   const { client, online, health, log } = useAgent();
   const available =
@@ -400,7 +400,7 @@ function usePonScan() {
   const refresh = useCallback(async () => {
     if (!available) return;
     setLoading(true);
-    const res = await mapLimit(PON_LIST, 3, async (pon): Promise<PonScan> => {
+    const res = await mapLimit(PON_LIST, 4, async (pon): Promise<PonScan> => {
       try {
         const r = await client.gponOnus(pon);
         const onus = onusFrom(r, pon);

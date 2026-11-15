@@ -80,6 +80,54 @@ export function parseOnus(parsed: unknown): OnuInfo[] | null {
   return out;
 }
 
+/** `parsed` de GET /olt/gpon/interface (contrato do agente .NET 0.2.0). */
+export interface GponInterfaceParsed {
+  kind: "gpon-interface";
+  pon: string;
+  adminState: string | null;
+  operState: string | null;
+  linkLevelType?: string | null;
+  logicalReach?: string | null;
+  downstreamFec?: string | null;
+  upstreamFec?: string | null;
+  transceiverType?: string | null;
+  allocatedUpstream?: { maxKbit: number | null; overheadKbit: number | null } | null;
+  availableUpstream?: { cbrKbit: number | null; totalKbit: number | null } | null;
+  onuCount: number | null;
+  parseStatus: string;
+}
+
+/** `parsed` de GET /olt/gpon/onu. */
+export interface GponOnusParsed {
+  kind: "gpon-onus";
+  pon: string;
+  onuCount: number;
+  onus: {
+    pon: string;
+    onuId: number;
+    serialNumber: string;
+    operState: string;
+    softwareDownloadState?: string;
+    name?: string;
+  }[];
+  parseStatus: string;
+}
+
+export function parseInterface(parsed: unknown): GponInterfaceParsed | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const o = parsed as Record<string, unknown>;
+  if (o["kind"] !== "gpon-interface" || typeof o["pon"] !== "string") return null;
+  const str = (k: string) => (typeof o[k] === "string" ? (o[k] as string) : null);
+  const cnt = o["onuCount"];
+  return {
+    ...(o as unknown as GponInterfaceParsed),
+    adminState: str("adminState"),
+    operState: str("operState"),
+    onuCount: typeof cnt === "number" ? cnt : null,
+    parseStatus: str("parseStatus") ?? "desconhecido",
+  };
+}
+
 /** Fallback: interpreta a saída bruta "1/1/N  id  SERIAL  Up|Down". */
 export function parseOnusRaw(raw: string, pon: string): OnuInfo[] {
   const esc = pon.replace(/\//g, "\\/");

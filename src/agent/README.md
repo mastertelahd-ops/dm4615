@@ -43,13 +43,13 @@ dotnet run --project .\src\agent\Dm4615.Agent.csproj
 
 - `GET /health`: status público, versão e capabilities disponíveis. Use `http://127.0.0.1:17861/health` para verificar; a raiz `/` não é uma rota pública e pode responder `unauthorized`.
 - `POST /olt/connection-test`: rota protegida; valida handshake SSH e fingerprint sem executar comandos na OLT.
-- `GET /olt/gpon/interface?pon=1/1/2`: somente leitura; executa `show interface gpon 1/1/2`.
-- `GET /olt/gpon/onu?pon=1/1/2`: somente leitura; executa `show interface gpon 1/1/2 onu`.
+- `GET /olt/gpon/interface?pon=1/1/N` (N = 1..16): somente leitura; executa `show interface gpon 1/1/N`.
+- `GET /olt/gpon/onu?pon=1/1/N` (N = 1..16): somente leitura; executa `show interface gpon 1/1/N onu`.
 - `POST /olt/cli/read`: permite somente esses dois comandos exatos.
 
 Rotas protegidas aceitam `Authorization: Bearer <token>`. A API inclui CORS e Private Network Access para as origens listadas em `DM4615_AGENT_ALLOWED_ORIGINS`. Não use curingas.
 
-Apenas a PON 1/1/2 foi validada até agora. As demais portas são rejeitadas. `show onu` isolado não é um comando válido nesse firmware. Nenhum comando de configuração, provisionamento, reboot ou limpeza é aceito.
+Aceita as PONs 1/1/1 a 1/1/16; outras são rejeitadas. `show onu` isolado não é um comando válido nesse firmware. Nenhum comando de configuração, provisionamento, reboot ou limpeza é aceito.
 
 ## Limitações importantes
 
