@@ -254,8 +254,8 @@ export function createAgentClient(baseUrl: string, token: string, caps: Capabili
       );
     },
     cliRead: async (command: string) => {
-      if (!(READ_ONLY_COMMANDS as readonly string[]).includes(command))
-        throw new Error("Comando fora da allowlist somente leitura.");
+      if (!/^show interface gpon 1\/1\/(?:[1-9]|1[0-6])(?: onu)?$/.test(command))
+        throw new Error("Comando fora da allowlist somente leitura GPON.");
       return call(base, token, caps, "cli.read", "/olt/cli/read", {
         method: "POST",
         body: JSON.stringify({ command }),
