@@ -24,8 +24,8 @@ Todas as rotas exceto `/health` recebem `Authorization: Bearer <token>`.
 Resposta das consultas: `{ command, collectedAt (ISO), raw, parsed? }`.
 O painel só chama uma rota se `/health` listar a capability; caso contrário mostra "consulta não implementada". Obs.: `show onu` sozinho não existe no DM4615.
 
-## Bloqueios
-Escrita, provisionamento, configuração e reboot estão bloqueados nesta versão. Não há banco de dados.
+## Bloqueios e dados
+Escrita, provisionamento, configuração e reboot na OLT estão bloqueados nesta versão. O projeto usa o banco Lovable Cloud existente para cadastros e fila administrativa; a descoberta GPON descrita abaixo é somente leitura e não grava nem atualiza tabelas.
 
 ## Desenvolvimento
 ```sh
@@ -48,8 +48,8 @@ Consulte [src/agent/README.md](src/agent/README.md) para configuração local. C
 O agente libera `/health` e a resposta vazia `/favicon.ico` sem autenticação; todas as rotas operacionais exigem token. A origem CORS deve estar na allowlist exata. Não exponha o serviço fora do loopback.
 
 ## Integração com o agente Windows (16 PONs)
-- O painel varre 1/1/1 a 1/1/16 via `GET /olt/gpon/onu?pon=1/1/N` (3 consultas em paralelo, a cada 60 s) e usa o campo `parsed` do agente. Formatos aceitos: lista ou `{ onus: [...] }`, com `onuId|id`, `serial|serialNumber`, `state|status`. Se `parsed` não for reconhecido, o painel tenta ler a saída bruta. Se mesmo assim não houver ONUs, a PON aparece como vazia. Nenhum dado é inventado.
+- O painel consulta manualmente 1/1/1 a 1/1/16 somente quando o usuário clica em “Consultar 16 PONs” ou “Buscar agora”. A concorrência máxima é 4 PONs por vez. Para cada porta, consulta interface e lista de ONUs e usa `parsed` do agente. Não há varredura automática nem gravação durante a descoberta.
 - Origens CORS que o agente deve permitir: preview, publicado e `https://5048035b-5812-5d98-a874-ee5a764cc22d.lovableproject.com` (editor). O agente precisa responder `Access-Control-Allow-Private-Network: true`. No Chrome e no Edge, aceite o pedido de "acesso à rede local". Firefox e Safari podem bloquear chamadas a `http://127.0.0.1` a partir de HTTPS.
 - Erros `problem+json` do agente (`detail`) são exibidos ao usuário.
-- A descoberta em Autoprovisionamento está em modo **somente leitura**: nada é gravado no banco (`PERSIST_DISCOVERY = false`).
+- A descoberta em Autoprovisionamento também é manual e **somente leitura**: consulta as 16 PONs, mantém os resultados em memória e não executa `insert`, `update` ou `upsert` durante a coleta. As ações de solicitação/aprovação são fluxos administrativos separados e não executam comandos na OLT.
 - `agent/app.py` é legado: o contrato atual é o agente .NET em `src/agent/`.
