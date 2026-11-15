@@ -84,20 +84,33 @@ function AutoProvisioning() {
         const { data: existing, error: findError } = await supabase.from("onus").select("id,customer_id").eq("serial_number", item.serial).maybeSingle();
         if (findError) throw findError;
         const status = existing?.customer_id ? (item.state === "Up" ? "online" : "offline") : "unregistered";
-        const { error: upsertError } = await supabase.from("onus").upsert({
-          serial_number: item.serial,
-          onu_number: item.onuNumber,
-          olt_id: olt.id,
-          pon_port_id: pon.id,
-          status,
-          last_seen_at: result.collectedAt,
-          metadata: { observed_oper_state: item.state, observed_pon: VALIDATED_PON, source_command: result.command },
-        }, { onConflict: "serial_number" });
-        if (upsertError) throw upsertError;
-        const { data: saved, error: savedError } = await supabase.from("onus").select("id").eq("serial_number", item.serial).single();
-        if (savedError) throw savedError;
+        let savedId = existing?.id;
+        if (existing) {
+          const { error: updateError } = await supabase.from("onus").update({
+            onu_number: item.onuNumber,
+            olt_id: olt.id,
+            pon_port_id: pon.id,
+            status,
+            last_seen_at: result.collectedAt,
+            metadata: { observed_oper_state: item.state, observed_pon: VALIDATED_PON, source_command: result.command },
+          }).eq("id", existing.id);
+          if (updateError) throw updateError;
+        } else {
+          const { data: inserted, error: insertError } = await supabase.from("onus").insert({
+            serial_number: item.serial,
+            onu_number: item.onuNumber,
+            olt_id: olt.id,
+            pon_port_id: pon.id,
+            status: "unregistered",
+            last_seen_at: result.collectedAt,
+            metadata: { observed_oper_state: item.state, observed_pon: VALIDATED_PON, source_command: result.command },
+          }).select("id").single();
+          if (insertError) throw insertError;
+          savedId = inserted.id;
+        }
+        if (!savedId) throw new Error("Não foi possível identificar a ONU persistida.");
         const { error: observationError } = await supabase.from("onu_observations").insert({
-          onu_id: saved.id,
+          onu_id: savedId,
           serial_number: item.serial,
           olt_id: olt.id,
           pon_port_id: pon.id,
