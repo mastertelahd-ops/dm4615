@@ -407,7 +407,7 @@ function usePonScan() {
   const refresh = useCallback(async () => {
     if (!available || loading) return;
     setLoading(true);
-    setScans(PON_LIST.map((pon) => ({ pon, status: "pendente", iface: null, onus: null })));
+    setScans(PON_LIST.map((pon) => ({ pon, status: "pendente" as const, iface: null, onus: null })));
     try {
       const results = await mapLimit(PON_LIST, 4, async (pon): Promise<PonScan> => {
         let iface: GponInterfaceParsed | null = null;
