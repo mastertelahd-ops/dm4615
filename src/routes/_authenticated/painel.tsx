@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -18,16 +18,20 @@ import { useAgent } from "@/lib/agent-context";
 import {
   AGENT_ROUTES,
   AgentUnavailableError,
-  PON_INVENTORY,
+  PON_LIST,
   READ_ONLY_COMMANDS,
+  mapLimit,
+  onusFrom,
+  parseInterface,
+  type OnuInfo,
   VALIDATED_PON,
   isLoopback,
   type Capability,
   type CollectResult,
+  type GponInterfaceParsed,
 } from "@/lib/agent-api";
-import { MANUAL_SNAPSHOT as S } from "@/lib/olt-snapshot";
 import { DEMO_DATA as D, DEMO_LABEL } from "@/lib/demo-data";
-import { AUTO_REFRESH_MS, useAutoRefresh } from "@/lib/use-auto-refresh";
+import { MANUAL_HISTORY_DATE, MANUAL_PON_HISTORY } from "@/lib/manual-history";
 
 const DESC = "Painel NOC somente leitura para OLT Datacom DM4615 via agente local Windows.";
 export const Route = createFileRoute("/_authenticated/painel")({
@@ -51,12 +55,12 @@ const nav = [
   { label: "Eventos/diagnóstico", icon: Activity },
 ] as const;
 type Section = (typeof nav)[number]["label"];
-const fmt = (n: number) => n.toLocaleString("pt-BR");
 
 function Index() {
   const [active, setActive] = useState<Section>("Visão geral");
   const [mobileNav, setMobileNav] = useState(false);
   const { online, health, demo, setDemo } = useAgent();
+  const scan = usePonScan();
   const agentLabel = online ? "ONLINE" : health ? "OFFLINE" : "DESCONHECIDO";
 
   return (
@@ -142,12 +146,22 @@ function Index() {
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{active}</div>
               <div className="mt-0.5 truncate text-[11px] text-slate-500">
-                {S.olt.vendor} {S.olt.model} • {S.olt.ip}
+                Datacom DM4615 • 192.168.0.25
               </div>
             </div>
           </div>
-          <a href="/cadastros" className="shrink-0 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20">Cadastros</a>
-          <a href="/autoprovisionamento" className="shrink-0 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-400/20">Autoprovisionamento</a>
+          <a
+            href="/cadastros"
+            className="shrink-0 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20"
+          >
+            Cadastros
+          </a>
+          <a
+            href="/autoprovisionamento"
+            className="shrink-0 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-400/20"
+          >
+            Autoprovisionamento
+          </a>
           {demo ? (
             <span className="rounded-full border border-fuchsia-400/30 bg-fuchsia-400/10 px-3 py-1.5 text-[10px] font-bold text-fuchsia-200">
               SIMULAÇÃO
@@ -169,8 +183,8 @@ function Index() {
             <DemoView section={active} />
           ) : (
             <>
-              {active === "Visão geral" && <Overview go={setActive} />}
-              {active === "GPON/ONUs" && <Gpon />}
+              {active === "Visão geral" && <Overview go={setActive} scan={scan} />}
+              {active === "GPON/ONUs" && <Gpon scan={scan} />}
               {active === "Conexão do agente" && <Connection />}
               {active === "Eventos/diagnóstico" && <Events />}
             </>
@@ -228,13 +242,6 @@ function Card({
       </div>
       {children}
     </div>
-  );
-}
-function ManualBadge() {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/20 bg-amber-400/[0.07] px-2 py-1 text-[10px] font-medium text-amber-300">
-      Última coleta manual confirmada
-    </span>
   );
 }
 function Notice({
@@ -376,22 +383,106 @@ function CollectView({ c, cap }: { c: ReturnType<typeof useCollect>; cap: Capabi
 }
 
 /* ---------- seções ---------- */
-function Overview({ go }: { go: (s: Section) => void }) {
+type PonScan = {
+  pon: string;
+  status: "pendente" | "ok" | "erro";
+  iface: GponInterfaceParsed | null;
+  onus: OnuInfo[] | null;
+  error?: string;
+  collectedAt?: string;
+};
+
+/** Varredura explícita: somente após clique, no máximo 4 PONs simultâneas. */
+function usePonScan() {
+  const { client, online, health, log } = useAgent();
+  const available =
+    online &&
+    health?.ok === true &&
+    health.info.capabilities.includes("gpon.interface.read") &&
+    health.info.capabilities.includes("gpon.onu.read");
+  const [scans, setScans] = useState<PonScan[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [at, setAt] = useState<Date | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!available || loading) return;
+    setLoading(true);
+    setScans(PON_LIST.map((pon) => ({ pon, status: "pendente" as const, iface: null, onus: null })));
+    try {
+      const results = await mapLimit(PON_LIST, 4, async (pon): Promise<PonScan> => {
+        let iface: GponInterfaceParsed | null = null;
+        try {
+          const interfaceResult = await client.gponInterface(pon);
+          iface = parseInterface(interfaceResult.parsed);
+          if (!iface) throw new Error(`A resposta da interface ${pon} não contém dados estruturados válidos.`);
+
+          const onuResult = await client.gponOnus(pon);
+          const onus = onusFrom(onuResult, pon);
+          if (onus === null) throw new Error(`A resposta da lista de ONUs da ${pon} não pôde ser interpretada.`);
+
+          return { pon, status: "ok", iface, onus, collectedAt: onuResult.collectedAt };
+        } catch (error) {
+          return {
+            pon,
+            status: "erro",
+            iface,
+            onus: null,
+            error: error instanceof Error ? error.message : "Falha na consulta.",
+          };
+        }
+      });
+      setScans(results);
+      setAt(new Date());
+      const total = results.reduce((n, item) => n + (item.onus?.length ?? 0), 0);
+      const failures = results.filter((item) => item.status === "erro").length;
+      log(failures ? "erro" : "ok", "Varredura manual das 16 PONs", `${total} ONU(s); ${failures} PON(s) com falha`);
+    } finally {
+      setLoading(false);
+    }
+  }, [available, client, log, loading]);
+
+  // Quando o agente cai, não apresentar a última leitura como se fosse atual.
+  const visibleScans = online ? scans : [];
+  return {
+    scans: visibleScans,
+    loading,
+    at: online ? at : null,
+    available,
+    refresh,
+    online,
+    historical: !online,
+  };
+}
+
+function Overview({ go, scan }: { go: (s: Section) => void; scan: ReturnType<typeof usePonScan> }) {
   const { online, health, lastCheck } = useAgent();
+  const all = scan.scans.flatMap((item) => item.onus ?? []);
+  const up = all.filter((onu) => /^up$|online/i.test(onu.state)).length;
+  const portsWithOnus = scan.scans.filter((item) => (item.onus?.length ?? 0) > 0).length;
+  const historicalPorts = Object.values(MANUAL_PON_HISTORY).filter((item) => item.onuCount > 0).length;
+  const historicalOnus = Object.values(MANUAL_PON_HISTORY).reduce((sum, item) => sum + item.onuCount, 0);
+  const hasLiveScan = scan.scans.length > 0;
+
   return (
     <>
       <Title
         kicker="Network operations center"
         title="Visão geral"
-        desc="Somente dados reais. Sem agente, exibimos apenas a última coleta manual confirmada."
+        desc="Dados ao vivo somente após consulta manual ao agente. O histórico fica identificado separadamente."
       />
       {!online && (
         <Notice>
-          Agente não conectado. Os dados abaixo são da <b>última coleta manual</b> e não indicam que
-          a OLT esteja online agora.{" "}
+          Agente desconectado. O histórico abaixo é apenas referência da coleta manual de {MANUAL_HISTORY_DATE}; não confirma o estado atual da OLT.{" "}
           <button className="font-semibold text-cyan-300" onClick={() => go("Conexão do agente")}>
             Conectar agente →
           </button>
+        </Notice>
+      )}
+      {online && !scan.available && (
+        <Notice tone="slate">
+          O agente está online, mas precisa anunciar as capabilities{" "}
+          <span className="font-mono">gpon.interface.read</span> e{" "}
+          <span className="font-mono">gpon.onu.read</span> para consultar as 16 PONs.
         </Notice>
       )}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -401,128 +492,163 @@ function Overview({ go }: { go: (s: Section) => void }) {
             v={<Status value={online ? "Online" : health ? "Offline" : "Desconhecido"} />}
           />
         </Card>
-        <Card title="OLT" right={<ManualBadge />}>
-          <KV k={`${S.olt.vendor} ${S.olt.model}`} v={`${S.olt.ip} • SSH ${S.olt.sshPort}`} />
+        <Card title="OLT">
+          <KV k="Datacom DM4615" v="192.168.0.25 • SSH 22" />
         </Card>
-        <Card title="PON validada">
-          <KV k={S.pon.type} v={`${S.pon.id} • ${S.pon.adminState}/${S.pon.operState} (manual)`} />
+        <Card title="PONs com ONU">
+          <KV
+            k={scan.historical ? `Histórico manual • ${MANUAL_HISTORY_DATE}` : "Última consulta ao agente"}
+            v={hasLiveScan ? `${portsWithOnus} de 16` : scan.historical ? `${historicalPorts} de 16` : "—"}
+          />
         </Card>
-        <Card title={`ONUs na PON ${S.pon.id}`}>
-          <KV k="Status das ONUs" v="Consulte a tabela ao vivo abaixo" />
+        <Card title="ONUs">
+          <KV
+            k={scan.historical ? "Contagem histórica; sem status individual" : "Up / total na última consulta"}
+            v={hasLiveScan ? `${up} / ${all.length}` : scan.historical ? String(historicalOnus) : "—"}
+          />
         </Card>
       </section>
-      <OnuTable />
+      <PonGrid scan={scan} />
+      <OnuTable scan={scan} />
     </>
   );
 }
 
-function OnuTable() {
-  const { client, online, health, log } = useAgent();
-  const [live, setLive] = useState<Record<string, "Up" | "Down">>({});
-  const [collectedAt, setCollectedAt] = useState<Date | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const available =
-    online && health?.ok === true && health.info.capabilities.includes("gpon.onu.read");
-
-  const refresh = useCallback(async () => {
-    if (!available) {
-      setLive({});
-      setCollectedAt(null);
-      setError("Sem comunicação com o agente/OLT.");
-      return;
-    }
-    try {
-      const result = await client.gponOnus(VALIDATED_PON);
-      const next: Record<string, "Up" | "Down"> = {};
-      const line = /^\s*1\/1\/2\s+(\d+)\s+([A-Z0-9]+)\s+(Up|Down)\b/gim;
-      for (const match of result.raw.matchAll(line)) {
-        next[match[2]] = match[3] as "Up" | "Down";
-      }
-      if (Object.keys(next).length === 0) {
-        throw new Error("A OLT respondeu, mas não foi possível interpretar a lista de ONUs.");
-      }
-      setLive(next);
-      setCollectedAt(new Date(result.collectedAt));
-      setError(null);
-      log("ok", "Atualização automática de ONUs", `${Object.keys(next).length} ONU(s) lida(s) da OLT`);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Falha ao consultar as ONUs.";
-      setLive({});
-      setCollectedAt(null);
-      setError(message);
-      log("erro", "Atualização automática de ONUs", message);
-    }
-  }, [available, client, log]);
-
-  useEffect(() => {
-    if (available) void refresh();
-    else {
-      setLive({});
-      setCollectedAt(null);
-      setError("Sem comunicação: aguardando agente e consulta GPON disponíveis.");
-    }
-  }, [available, refresh]);
-  useAutoRefresh(available, refresh, 30_000);
-
-  const stateLabel = (serial: string) => live[serial] ?? "Desconhecido";
+function PonGrid({ scan }: { scan: ReturnType<typeof usePonScan> }) {
+  const byPon = new Map(scan.scans.map((item) => [item.pon, item]));
   return (
     <Card
-      title={`ONUs na PON ${S.pon.id}`}
-      desc="Status consultado diretamente na OLT, com atualização automática a cada 30 segundos."
+      title="PONs 1/1/1 – 1/1/16"
+      desc={scan.historical
+        ? `ÚLTIMA COLETA MANUAL — ${MANUAL_HISTORY_DATE} — NÃO É ESTADO AO VIVO.`
+        : "Estado administrativo, estado operacional e quantidade de ONUs consultados no agente."}
       right={
-        <div className="text-right">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/20 bg-cyan-400/[0.06] px-2 py-1 text-[10px] text-cyan-200">
-            <RefreshCw size={11} /> Ao vivo • 30 s
-          </span>
-          <div className="mt-1 text-[10px] text-slate-500">
-            {collectedAt ? `Última coleta: ${collectedAt.toLocaleTimeString("pt-BR")}` : "Aguardando coleta"}
-          </div>
-        </div>
+        <Btn disabled={!scan.available || scan.loading} onClick={scan.refresh}>
+          {scan.loading ? "Consultando..." : "Consultar 16 PONs"}
+        </Btn>
       }
     >
-      {error && <div role="status" className="mb-3 rounded-lg border border-amber-400/20 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-200">{error}</div>}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[420px] text-left">
-          <thead>
-            <tr className="text-[10px] uppercase tracking-wider text-slate-500">
-              <th className="py-2 font-medium">ONU ID</th>
-              <th className="py-2 font-medium">Serial</th>
-              <th className="py-2 font-medium">Status real</th>
-            </tr>
-          </thead>
-          <tbody>
-            {S.onus.map((o) => {
-              const status = stateLabel(o.serial);
-              return (
-                <tr key={o.onuId} className="border-t border-white/[0.045] text-xs">
-                  <td className="py-3 font-mono">{o.onuId}</td>
-                  <td className="py-3 font-mono text-slate-300">{o.serial}</td>
-                  <td className="py-3">
-                    <Status value={status} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {scan.historical && (
+        <Notice tone="amber">
+          <b>ÚLTIMA COLETA MANUAL — NÃO É ESTADO AO VIVO.</b> Os dados abaixo não confirmam a condição atual da OLT.
+        </Notice>
+      )}
+      {!scan.historical && !scan.scans.length && (
+        <p className="mb-3 text-[11px] text-slate-500">Nenhuma varredura executada. Clique em “Consultar 16 PONs” para iniciar uma leitura.</p>
+      )}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+        {PON_LIST.map((pon) => {
+          const item = byPon.get(pon);
+          const history = MANUAL_PON_HISTORY[pon];
+          const isHistory = scan.historical && !item;
+          const admin = item?.iface?.adminState ?? (isHistory ? "Enabled" : "—");
+          const oper = item?.iface?.operState ?? (isHistory ? history?.operState ?? "—" : "—");
+          const count = item?.iface?.onuCount ?? item?.onus?.length ?? (isHistory ? history?.onuCount : null);
+          const label = item?.status === "pendente"
+            ? "consultando"
+            : item?.status === "erro"
+              ? "falha na consulta"
+              : item?.status === "ok"
+                ? "leitura atual"
+                : isHistory
+                  ? "histórico manual"
+                  : "sem leitura";
+          return (
+            <div
+              key={pon}
+              data-testid={`pon-${pon}`}
+              title={item?.error}
+              className={`rounded-lg border p-3 ${item?.status === "erro" ? "border-rose-400/30" : count ? "border-cyan-400/30 bg-cyan-400/[0.05]" : "border-white/[0.07]"}`}
+            >
+              <div className="font-mono text-xs font-semibold">{pon}</div>
+              <div className="mt-2 space-y-1 text-[10px] text-slate-400">
+                <div className="flex items-center justify-between gap-1"><span>Admin</span><Status value={admin} /></div>
+                <div className="flex items-center justify-between gap-1"><span>Link</span><Status value={oper} /></div>
+                <div>ONUs: {count === null || count === undefined ? "—" : count}</div>
+                <div className="text-[9px]">{label}</div>
+              </div>
+              {item?.error && <p className="mt-2 break-words text-[9px] text-rose-300">{item.error}</p>}
+            </div>
+          );
+        })}
       </div>
+      {scan.at && scan.online && (
+        <p className="mt-3 text-[10px] text-slate-500">Varredura concluída em {scan.at.toLocaleString("pt-BR")}. Sem atualização automática.</p>
+      )}
     </Card>
   );
 }
 
-function Gpon() {
+function OnuTable({ scan }: { scan: ReturnType<typeof usePonScan> }) {
+  const rows = scan.scans.flatMap((item) => (item.onus ?? []).map((onu) => ({ ...onu, pon: item.pon })));
+  const failures = scan.scans.filter((item) => item.status === "erro");
+  return (
+    <Card
+      title="ONUs detectadas (todas as PONs)"
+      desc="Seriais e estados exibidos somente quando retornados pela consulta atual do agente."
+      right={
+        <div className="text-[10px] text-slate-500">
+          {scan.at ? `Última varredura: ${scan.at.toLocaleTimeString("pt-BR")}` : "Aguardando consulta"}
+        </div>
+      }
+    >
+      {scan.historical && (
+        <p role="status" className="mb-3 text-[11px] text-amber-200">
+          O histórico manual contém somente contagens por PON; não há seriais históricos disponíveis para exibição.
+        </p>
+      )}
+      {failures.length > 0 && (
+        <p role="status" className="mb-3 text-[11px] text-rose-300">
+          Falha em {failures.map((item) => item.pon).join(", ")}. Consulte o detalhe em cada porta.
+        </p>
+      )}
+      {scan.online && scan.scans.length > 0 && rows.length === 0 && failures.length === 0 && (
+        <p className="text-xs text-slate-500">Nenhuma ONU encontrada nas PONs consultadas. Isso não é erro.</p>
+      )}
+      {scan.online && scan.scans.length === 0 && (
+        <p className="text-xs text-slate-500">Clique em “Consultar 16 PONs” para listar os seriais reais.</p>
+      )}
+      {rows.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px] text-left">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-slate-500">
+                <th className="py-2 font-medium">PON</th>
+                <th className="py-2 font-medium">ONU ID</th>
+                <th className="py-2 font-medium">Serial</th>
+                <th className="py-2 font-medium">Estado OLT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((onu) => (
+                <tr key={`${onu.pon}-${onu.serial}`} className="border-t border-white/[0.045] text-xs">
+                  <td className="py-3 font-mono">{onu.pon}</td>
+                  <td className="py-3 font-mono">{onu.onuId ?? "—"}</td>
+                  <td className="py-3 font-mono text-slate-300">{onu.serial}</td>
+                  <td className="py-3"><Status value={onu.state} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function Gpon({ scan }: { scan: ReturnType<typeof usePonScan> }) {
   const { client } = useAgent();
-  const [auto, setAuto] = useState(false);
-  const [cmd, setCmd] = useState<string>(READ_ONLY_COMMANDS[0]);
+  const [pon, setPon] = useState<string>(VALIDATED_PON);
+  const [cmd, setCmd] = useState<string>(READ_ONLY_COMMANDS[0]!);
   const iface = useCollect(
     "gpon.interface.read",
-    useCallback(() => client.gponInterface(VALIDATED_PON), [client]),
-    `Interface ${VALIDATED_PON}`,
+    useCallback(() => client.gponInterface(pon), [client, pon]),
+    `Interface ${pon}`,
   );
   const onus = useCollect(
     "gpon.onu.read",
-    useCallback(() => client.gponOnus(VALIDATED_PON), [client]),
-    `ONUs ${VALIDATED_PON}`,
+    useCallback(() => client.gponOnus(pon), [client, pon]),
+    `ONUs ${pon}`,
   );
   const cli = useCollect(
     "cli.read",
@@ -533,54 +659,29 @@ function Gpon() {
   const refreshAll = useCallback(async () => {
     await Promise.all([iface.available ? iface.run() : null, onus.available ? onus.run() : null]);
   }, [iface, onus]);
-  useAutoRefresh(auto && anyAvail, refreshAll);
-  const u = S.pon.upstreamKbps;
   return (
     <>
-      <Title
-        kicker="GPON"
-        title="GPON/ONUs"
-        desc={`Somente a PON ${VALIDATED_PON} é consultada. As demais aparecem como inventário.`}
-      >
+      <Title kicker="GPON" title="GPON/ONUs" desc="Consulta detalhada por PON (1/1/1 a 1/1/16).">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-slate-400">
-            <input
-              type="checkbox"
-              checked={auto}
-              disabled={!anyAvail}
-              onChange={(e) => setAuto(e.target.checked)}
-              className="accent-cyan-400"
-            />
-            Atualizar a cada {AUTO_REFRESH_MS / 1000}s (pausa com aba inativa)
-          </label>
+          <select
+            aria-label="PON"
+            value={pon}
+            onChange={(e) => setPon(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#080d17] px-3 py-2 font-mono text-xs text-slate-200"
+          >
+            {PON_LIST.map((p) => (
+              <option key={p}>{p}</option>
+            ))}
+          </select>
           <Btn disabled={!anyAvail || iface.loading || onus.loading} onClick={refreshAll}>
             Atualizar agora
           </Btn>
         </div>
       </Title>
-      <Card
-        title="Inventário de portas PON"
-        desc="Visual. Apenas 1/1/2 está validada; nenhum estado é inferido para as demais."
-      >
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          {PON_INVENTORY.map((p) => (
-            <div
-              key={p}
-              className={`rounded-lg border p-3 ${p === VALIDATED_PON ? "border-cyan-400/30 bg-cyan-400/[0.05]" : "border-white/[0.07]"}`}
-            >
-              <div className="font-mono text-xs font-semibold">{p}</div>
-              <div
-                className={`mt-1 text-[10px] ${p === VALIDATED_PON ? "text-cyan-300" : "text-slate-500"}`}
-              >
-                {p === VALIDATED_PON ? "validada" : "não consultada"}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
+      <PonGrid scan={scan} />
       <section className="grid gap-5 xl:grid-cols-2">
         <Card
-          title={`Interface ${VALIDATED_PON} (ao vivo)`}
+          title={`Interface ${pon} (ao vivo)`}
           right={
             <Btn disabled={!iface.available || iface.loading} onClick={iface.run}>
               {iface.loading ? "Consultando..." : "Consultar"}
@@ -590,7 +691,7 @@ function Gpon() {
           <CollectView c={iface} cap="gpon.interface.read" />
         </Card>
         <Card
-          title={`ONUs ${VALIDATED_PON} (ao vivo)`}
+          title={`ONUs ${pon} (ao vivo)`}
           right={
             <Btn disabled={!onus.available || onus.loading} onClick={onus.run}>
               {onus.loading ? "Listando..." : "Listar ONUs"}
@@ -600,20 +701,8 @@ function Gpon() {
           <CollectView c={onus} cap="gpon.onu.read" />
         </Card>
       </section>
-      <Card
-        title={`PON ${S.pon.id}`}
-        desc="Referência da coleta manual (não é dado ao vivo)."
-        right={<ManualBadge />}
-      >
-        <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          <KV k="Estado físico" v={`${S.pon.adminState} / ${S.pon.operState}`} />
-          <KV k="FEC up / down" v={`${S.pon.fecUpstream} / ${S.pon.fecDownstream}`} />
-          <KV k="Transceiver" v={S.pon.transceiver} />
-          <KV k="Upstream disponível CBR" v={`${fmt(u.availableCbr)} kbit/s`} />
-        </div>
-      </Card>
-      <OnuTable />
-      <Card title="Terminal somente leitura" desc="Apenas os dois comandos da allowlist.">
+      <OnuTable scan={scan} />
+      <Card title="Terminal somente leitura" desc="Somente comandos show da allowlist (16 PONs).">
         <div className="flex flex-col gap-2 sm:flex-row">
           <select
             aria-label="Comando"

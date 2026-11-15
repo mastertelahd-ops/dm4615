@@ -3,9 +3,15 @@
 export const DEFAULT_AGENT_URL = "http://127.0.0.1:17861";
 export const AGENT_URL_STORAGE_KEY = "dm4615.agentUrl";
 
-/** Portas físicas identificadas no chassi. A coleta só será considerada válida após resposta individual da OLT. */
+/** PON padrão selecionada na UI (a de laboratório). */
 export const VALIDATED_PON = "1/1/2";
-export const PON_INVENTORY = Array.from({ length: 16 }, (_, i) => `1/1/${i + 1}`);
+/** As 16 PONs da DM4615 (1/1/1 a 1/1/16), todas consultáveis em modo leitura. */
+export const PON_LIST = Array.from({ length: 16 }, (_, i) => `1/1/${i + 1}`);
+/** @deprecated use PON_LIST */
+export const PON_INVENTORY = PON_LIST;
+export function isValidPon(pon: string): boolean {
+  return PON_LIST.includes(pon);
+}
 
 export type Capability = "gpon.interface.read" | "gpon.onu.read" | "cli.read";
 
@@ -16,13 +22,13 @@ export const AGENT_ROUTES: Record<
 > = {
   "gpon.interface.read": {
     method: "GET",
-    path: "/olt/gpon/interface?pon=1/1/2",
-    description: "show interface gpon 1/1/2",
+    path: "/olt/gpon/interface?pon=1/1/N",
+    description: "show interface gpon 1/1/N",
   },
   "gpon.onu.read": {
     method: "GET",
-    path: "/olt/gpon/onu?pon=1/1/2",
-    description: "show interface gpon 1/1/2 onu",
+    path: "/olt/gpon/onu?pon=1/1/N",
+    description: "show interface gpon 1/1/N onu",
   },
   "cli.read": {
     method: "POST",
@@ -32,10 +38,131 @@ export const AGENT_ROUTES: Record<
 };
 
 /** Comandos permitidos no terminal. Nada de escrita/config/reboot. */
-export const READ_ONLY_COMMANDS = [
-  "show interface gpon 1/1/2",
-  "show interface gpon 1/1/2 onu",
-] as const;
+export const READ_ONLY_COMMANDS: readonly string[] = PON_LIST.flatMap((p) => [
+  `show interface gpon ${p}`,
+  `show interface gpon ${p} onu`,
+]);
+
+export interface OnuInfo {
+  onuId: number | null;
+  serial: string;
+  state: string;
+}
+
+/**
+ * Extrai ONUs do campo `parsed` do agente de forma tolerante. Aceita lista
+ * direta ou objeto com `onus`/`items`. Campos: id|onuId|onu_id, serial|serialNumber|sn,
+ * state|status|operState. Formato desconhecido retorna null (nunca dados fictícios).
+ */
+export function parseOnus(parsed: unknown): OnuInfo[] | null {
+  const rec = parsed as Record<string, unknown> | null;
+  const list = Array.isArray(parsed)
+    ? parsed
+    : rec && typeof rec === "object"
+      ? (rec["onus"] ?? rec["items"] ?? rec["onuList"])
+      : null;
+  if (!Array.isArray(list)) return null;
+  const out: OnuInfo[] = [];
+  for (const it of list) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as Record<string, unknown>;
+    const serial = o["serial"] ?? o["serialNumber"] ?? o["serial_number"] ?? o["sn"];
+    if (typeof serial !== "string" || !serial.trim()) continue;
+    const idRaw = o["onuId"] ?? o["onu_id"] ?? o["id"] ?? o["onu"];
+    const id = idRaw === undefined || idRaw === null ? NaN : Number(idRaw);
+    const state = o["state"] ?? o["status"] ?? o["operState"] ?? o["oper_state"] ?? o["operStatus"];
+    out.push({
+      onuId: Number.isFinite(id) ? id : null,
+      serial: serial.trim(),
+      state: typeof state === "string" && state.trim() ? state.trim() : "Desconhecido",
+    });
+  }
+  return out;
+}
+
+/** `parsed` de GET /olt/gpon/interface (contrato do agente .NET 0.2.0). */
+export interface GponInterfaceParsed {
+  kind: "gpon-interface";
+  pon: string;
+  adminState: string | null;
+  operState: string | null;
+  linkLevelType?: string | null;
+  logicalReach?: string | null;
+  downstreamFec?: string | null;
+  upstreamFec?: string | null;
+  transceiverType?: string | null;
+  allocatedUpstream?: { maxKbit: number | null; overheadKbit: number | null } | null;
+  availableUpstream?: { cbrKbit: number | null; totalKbit: number | null } | null;
+  onuCount: number | null;
+  parseStatus: string;
+}
+
+/** `parsed` de GET /olt/gpon/onu. */
+export interface GponOnusParsed {
+  kind: "gpon-onus";
+  pon: string;
+  onuCount: number;
+  onus: {
+    pon: string;
+    onuId: number;
+    serialNumber: string;
+    operState: string;
+    softwareDownloadState?: string;
+    name?: string;
+  }[];
+  parseStatus: string;
+}
+
+export function parseInterface(parsed: unknown): GponInterfaceParsed | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const o = parsed as Record<string, unknown>;
+  if (o["kind"] !== "gpon-interface" || typeof o["pon"] !== "string") return null;
+  const str = (k: string) => (typeof o[k] === "string" ? (o[k] as string) : null);
+  const cnt = o["onuCount"];
+  return {
+    ...(o as unknown as GponInterfaceParsed),
+    adminState: str("adminState"),
+    operState: str("operState"),
+    onuCount: typeof cnt === "number" ? cnt : null,
+    parseStatus: str("parseStatus") ?? "desconhecido",
+  };
+}
+
+/** Fallback: interpreta a saída bruta "1/1/N  id  SERIAL  Up|Down". */
+export function parseOnusRaw(raw: string, pon: string): OnuInfo[] {
+  const esc = pon.replace(/\//g, "\\/");
+  const re = new RegExp(`^\\s*${esc}\\s+(\\d+)\\s+([A-Z0-9]{8,})\\s+(Up|Down)\\b`, "gim");
+  return [...raw.matchAll(re)].map((m) => ({ onuId: Number(m[1]), serial: m[2]!, state: m[3]! }));
+}
+
+export function onusFrom(r: CollectResult, pon: string): OnuInfo[] | null {
+  return parseOnus(r.parsed) ?? (parseOnusRaw(r.raw, pon).length ? parseOnusRaw(r.raw, pon) : null);
+}
+
+/** Executa tarefas com concorrência limitada (para varrer as 16 PONs). */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>) {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) {
+        const k = i++;
+        out[k] = await fn(items[k]!);
+      }
+    }),
+  );
+  return out;
+}
+
+async function problemDetail(res: Response): Promise<string | null> {
+  try {
+    const b = (await res.json()) as Record<string, unknown>;
+    const d = b["detail"] ?? b["error"] ?? b["title"];
+    return typeof d === "string" && d.trim() ? d.trim() : null;
+  } catch {
+    return null;
+  }
+}
 
 export const WRITE_OPERATIONS_ENABLED = false;
 
@@ -165,8 +292,14 @@ export async function testOltConnection(
       reason: "unauthorized",
       message: "Token inválido: o agente recusou o acesso.",
     };
-  if (!res.ok)
-    return { ok: false, reason: "http", message: `Teste de conexão respondeu HTTP ${res.status}.` };
+  if (!res.ok) {
+    const d = await problemDetail(res);
+    return {
+      ok: false,
+      reason: "http",
+      message: `Teste de conexão respondeu HTTP ${res.status}${d ? `: ${d}` : "."}`,
+    };
+  }
   try {
     const body = (await res.json()) as Record<string, unknown>;
     return { ok: true, body, latencyMs: Math.round(performance.now() - start) };
@@ -209,7 +342,12 @@ async function call(
   }
   if (res.status === 401 || res.status === 403)
     throw new AgentAuthError("Token inválido: o agente recusou a consulta.");
-  if (!res.ok) throw new Error(`A consulta falhou: o agente respondeu HTTP ${res.status}.`);
+  if (!res.ok) {
+    const d = await problemDetail(res);
+    throw new Error(
+      `A consulta falhou: o agente respondeu HTTP ${res.status}${d ? ` — ${d}` : "."}`,
+    );
+  }
   let body: Partial<CollectResult>;
   try {
     body = (await res.json()) as Partial<CollectResult>;
@@ -226,8 +364,10 @@ async function call(
 }
 
 function assertPon(pon: string) {
-  if (!/^1\/1\/(?:[1-9]|1[0-6])$/.test(pon))
-    throw new AgentUnavailableError(`Identificador de PON inválido ou fora do chassi: ${pon}.`);
+  if (!isValidPon(pon))
+    throw new AgentUnavailableError(
+      `PON ${pon} fora do intervalo 1/1/1–1/1/16: consulta bloqueada.`,
+    );
 }
 
 export function createAgentClient(baseUrl: string, token: string, caps: Capability[]) {
@@ -254,8 +394,8 @@ export function createAgentClient(baseUrl: string, token: string, caps: Capabili
       );
     },
     cliRead: async (command: string) => {
-      if (!/^show interface gpon 1\/1\/(?:[1-9]|1[0-6])(?: onu)?$/.test(command))
-        throw new Error("Comando fora da allowlist somente leitura GPON.");
+      if (!READ_ONLY_COMMANDS.includes(command))
+        throw new Error("Comando fora da allowlist somente leitura.");
       return call(base, token, caps, "cli.read", "/olt/cli/read", {
         method: "POST",
         body: JSON.stringify({ command }),
