@@ -21,8 +21,8 @@ describe("agent api", () => {
       .mockResolvedValue(new Response(JSON.stringify({ status: "ok", capabilities: [] })));
     vi.stubGlobal("fetch", f);
     await checkHealth(DEFAULT_AGENT_URL, "secret");
-    expect(f.mock.calls[0][0]).toBe("http://127.0.0.1:17861/health");
-    expect(f.mock.calls[0][1].headers.Authorization).toBe("Bearer secret");
+    expect(f.mock.calls[0]![0]).toBe("http://127.0.0.1:17861/health");
+    expect(f.mock.calls[0]![1].headers.Authorization).toBe("Bearer secret");
   });
   it("does not call endpoints the agent did not declare", async () => {
     const f = vi.fn();
