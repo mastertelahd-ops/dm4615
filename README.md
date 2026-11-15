@@ -11,11 +11,12 @@ Painel web para a OLT Datacom DM4615 (192.168.0.25) que conversa com um **agente
 O agente deve responder CORS para a origem do painel (`Access-Control-Allow-Origin`, `Access-Control-Allow-Headers: Authorization, Content-Type`) e, para Chrome, `Access-Control-Allow-Private-Network: true` no preflight.
 
 ## Contrato que o agente precisa implementar
-Todas as rotas recebem `Authorization: Bearer <token>`.
+Todas as rotas exceto `/health` recebem `Authorization: Bearer <token>`.
 
 | Rota | Capability | Comando na OLT |
 |---|---|---|
-| `GET /health` → `{ status, version?, agent?, capabilities: string[] }` | — | — |
+| `GET /health` (público, sem token) → `{ status, version?, agent?, capabilities: string[] }` | — | — |
+| `POST /olt/connection-test` (token) | — | handshake SSH (não habilita CLI) |
 | `GET /olt/gpon/interface?pon=1/1/2` | `gpon.interface.read` | `show interface gpon 1/1/2` |
 | `GET /olt/gpon/onu?pon=1/1/2` | `gpon.onu.read` | `show interface gpon 1/1/2 onu` |
 | `POST /olt/cli/read` body `{ command }` | `cli.read` | apenas allowlist de leitura |
@@ -31,3 +32,9 @@ Escrita, provisionamento, configuração e reboot estão bloqueados nesta versã
 bun install && bun run dev
 bun run test && bun run lint && bun run build
 ```
+
+## Modo demonstração
+Ativado no menu lateral. Exibe somente dados fictícios marcados "SIMULAÇÃO — NÃO SÃO DADOS DA OLT" e não chama o agente.
+
+## Atualização automática
+Opcional a cada 30 s na tela GPON/ONUs; pausa quando a aba fica inativa.

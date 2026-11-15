@@ -1,29 +1,34 @@
 // Cliente tipado do agente local Windows. O token é passado por chamada e
-// nunca é gravado (localStorage, URL, logs). Apenas a URL pode ser salva.
+// nunca é gravado (localStorage, URL, logs, console). Apenas a URL pode ser salva.
 export const DEFAULT_AGENT_URL = "http://127.0.0.1:17861";
 export const AGENT_URL_STORAGE_KEY = "dm4615.agentUrl";
 
+/** Única PON validada no agente atual. Nenhuma consulta é enviada para outras PONs. */
+export const VALIDATED_PON = "1/1/2";
+/** Inventário visual (não consultado). */
+export const PON_INVENTORY = Array.from({ length: 10 }, (_, i) => `1/1/${i + 1}`);
+
 export type Capability = "gpon.interface.read" | "gpon.onu.read" | "cli.read";
 
-/** Rotas que o agente precisa implementar. Só são chamadas se /health declarar a capability. */
+/** Rotas documentadas. Só são chamadas se /health declarar a capability. */
 export const AGENT_ROUTES: Record<
   Capability,
   { method: "GET" | "POST"; path: string; description: string }
 > = {
   "gpon.interface.read": {
     method: "GET",
-    path: "/olt/gpon/interface?pon={pon}",
-    description: "Executa `show interface gpon {pon}`",
+    path: "/olt/gpon/interface?pon=1/1/2",
+    description: "show interface gpon 1/1/2",
   },
   "gpon.onu.read": {
     method: "GET",
-    path: "/olt/gpon/onu?pon={pon}",
-    description: "Executa `show interface gpon {pon} onu`",
+    path: "/olt/gpon/onu?pon=1/1/2",
+    description: "show interface gpon 1/1/2 onu",
   },
   "cli.read": {
     method: "POST",
     path: "/olt/cli/read",
-    description: "Executa comando da allowlist somente leitura",
+    description: "Comandos da allowlist somente leitura",
   },
 };
 
@@ -40,6 +45,8 @@ export interface HealthInfo {
   version?: string | undefined;
   agent?: string | undefined;
   capabilities: Capability[];
+  /** Capabilities anunciadas que o painel não conhece (exibidas, nunca chamadas). */
+  unknownCapabilities: string[];
 }
 export interface CollectResult {
   command: string;
@@ -48,13 +55,16 @@ export interface CollectResult {
   parsed?: unknown;
 }
 
+export type FailReason =
+  "invalid-url" | "timeout" | "network" | "unauthorized" | "http" | "bad-response";
+
 export type HealthResult =
   | { ok: true; info: HealthInfo; latencyMs: number }
-  | {
-      ok: false;
-      reason: "invalid-url" | "timeout" | "network" | "unauthorized" | "http" | "bad-response";
-      message: string;
-    };
+  | { ok: false; reason: FailReason; message: string };
+
+export type ConnectionTestResult =
+  | { ok: true; body: Record<string, unknown>; latencyMs: number }
+  | { ok: false; reason: FailReason | "no-token"; message: string };
 
 export function normalizeUrl(url: string): string | null {
   try {
@@ -66,21 +76,35 @@ export function normalizeUrl(url: string): string | null {
   }
 }
 
-function headers(token: string): HeadersInit {
-  return token ? { Authorization: `Bearer ${token}` } : {};
+/** O agente deve ficar restrito a loopback. */
+export function isLoopback(url: string): boolean {
+  const base = normalizeUrl(url);
+  if (!base) return false;
+  const h = new URL(base).hostname;
+  return h === "127.0.0.1" || h === "localhost" || h === "[::1]";
 }
 
-async function timedFetch(url: string, init: RequestInit, ms = 5000) {
+const NETWORK_MSG =
+  "Agente inacessível: verifique se o serviço está rodando nesta máquina e se libera CORS e Access-Control-Allow-Private-Network para esta origem.";
+
+async function timedFetch(url: string, init: RequestInit, ms: number) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await fetch(url, { ...init, signal: ctrl.signal });
+    return await fetch(url, { ...init, signal: ctrl.signal, cache: "no-store" });
   } finally {
     clearTimeout(t);
   }
 }
 
-export async function checkHealth(baseUrl: string, token: string): Promise<HealthResult> {
+function fetchFailure(e: unknown, ms: number): { reason: FailReason; message: string } {
+  if (e instanceof DOMException && e.name === "AbortError")
+    return { reason: "timeout", message: `O agente não respondeu em ${ms / 1000} segundos.` };
+  return { reason: "network", message: NETWORK_MSG };
+}
+
+/** GET /health é público: não envia token. */
+export async function checkHealth(baseUrl: string): Promise<HealthResult> {
   const base = normalizeUrl(baseUrl);
   if (!base)
     return {
@@ -91,38 +115,24 @@ export async function checkHealth(baseUrl: string, token: string): Promise<Healt
   const start = performance.now();
   let res: Response;
   try {
-    res = await timedFetch(`${base}/health`, {
-      method: "GET",
-      headers: headers(token),
-      cache: "no-store",
-    });
+    res = await timedFetch(`${base}/health`, { method: "GET" }, 5000);
   } catch (e) {
-    if (e instanceof DOMException && e.name === "AbortError")
-      return { ok: false, reason: "timeout", message: "O agente não respondeu em 5 segundos." };
-    return {
-      ok: false,
-      reason: "network",
-      message:
-        "Agente inacessível: verifique se o serviço está rodando nesta máquina e se libera CORS (e Access-Control-Allow-Private-Network) para esta origem.",
-    };
+    return { ok: false, ...fetchFailure(e, 5000) };
   }
-  if (res.status === 401 || res.status === 403)
-    return { ok: false, reason: "unauthorized", message: "O agente recusou o token informado." };
   if (!res.ok)
-    return { ok: false, reason: "http", message: `O agente respondeu HTTP ${res.status}.` };
+    return { ok: false, reason: "http", message: `/health respondeu HTTP ${res.status}.` };
   try {
-    const body = (await res.json()) as Partial<HealthInfo>;
-    const caps = Array.isArray(body.capabilities)
-      ? body.capabilities.filter((c): c is Capability => c in AGENT_ROUTES)
-      : [];
+    const body = (await res.json()) as Partial<HealthInfo> & { capabilities?: unknown };
+    const all = Array.isArray(body.capabilities) ? body.capabilities.map(String) : [];
     return {
       ok: true,
       latencyMs: Math.round(performance.now() - start),
       info: {
-        status: String(body.status ?? "ok"),
-        version: body.version,
-        agent: body.agent,
-        capabilities: caps,
+        status: String(body.status ?? "desconhecido"),
+        version: typeof body.version === "string" ? body.version : undefined,
+        agent: typeof body.agent === "string" ? body.agent : undefined,
+        capabilities: all.filter((c): c is Capability => c in AGENT_ROUTES),
+        unknownCapabilities: all.filter((c) => !(c in AGENT_ROUTES)),
       },
     };
   } catch {
@@ -130,7 +140,44 @@ export async function checkHealth(baseUrl: string, token: string): Promise<Healt
   }
 }
 
+/** POST /olt/connection-test (autenticado): valida token e handshake do agente com a OLT. */
+export async function testOltConnection(
+  baseUrl: string,
+  token: string,
+): Promise<ConnectionTestResult> {
+  const base = normalizeUrl(baseUrl);
+  if (!base) return { ok: false, reason: "invalid-url", message: "URL inválida." };
+  if (!token.trim())
+    return { ok: false, reason: "no-token", message: "Informe o token Bearer do agente." };
+  const start = performance.now();
+  let res: Response;
+  try {
+    res = await timedFetch(
+      `${base}/olt/connection-test`,
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      15000,
+    );
+  } catch (e) {
+    return { ok: false, ...fetchFailure(e, 15000) };
+  }
+  if (res.status === 401 || res.status === 403)
+    return {
+      ok: false,
+      reason: "unauthorized",
+      message: "Token inválido: o agente recusou o acesso.",
+    };
+  if (!res.ok)
+    return { ok: false, reason: "http", message: `Teste de conexão respondeu HTTP ${res.status}.` };
+  try {
+    const body = (await res.json()) as Record<string, unknown>;
+    return { ok: true, body, latencyMs: Math.round(performance.now() - start) };
+  } catch {
+    return { ok: false, reason: "bad-response", message: "Resposta do teste não é JSON válido." };
+  }
+}
+
 export class AgentUnavailableError extends Error {}
+export class AgentAuthError extends Error {}
 
 async function call(
   base: string,
@@ -141,35 +188,75 @@ async function call(
   init: RequestInit = {},
 ): Promise<CollectResult> {
   if (!caps.includes(cap))
-    throw new AgentUnavailableError("Aguardando agente: consulta não implementada.");
-  const res = await timedFetch(
-    `${base}${path}`,
-    {
-      ...init,
-      headers: { ...headers(token), ...(init.body ? { "Content-Type": "application/json" } : {}) },
-    },
-    30000,
-  );
-  if (!res.ok) throw new Error(`O agente respondeu HTTP ${res.status}.`);
-  return (await res.json()) as CollectResult;
+    throw new AgentUnavailableError(
+      "Consulta desabilitada: o agente não anunciou esta capability (pendente de validação).",
+    );
+  if (!token.trim()) throw new AgentAuthError("Informe o token Bearer para consultar.");
+  let res: Response;
+  try {
+    res = await timedFetch(
+      `${base}${path}`,
+      {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(init.body ? { "Content-Type": "application/json" } : {}),
+        },
+      },
+      30000,
+    );
+  } catch (e) {
+    throw new Error(fetchFailure(e, 30000).message);
+  }
+  if (res.status === 401 || res.status === 403)
+    throw new AgentAuthError("Token inválido: o agente recusou a consulta.");
+  if (!res.ok) throw new Error(`A consulta falhou: o agente respondeu HTTP ${res.status}.`);
+  let body: Partial<CollectResult>;
+  try {
+    body = (await res.json()) as Partial<CollectResult>;
+  } catch {
+    throw new Error("Resposta da consulta não é JSON válido.");
+  }
+  if (typeof body.raw !== "string") throw new Error("Resposta da consulta sem saída bruta (raw).");
+  return {
+    command: String(body.command ?? ""),
+    collectedAt: String(body.collectedAt ?? new Date().toISOString()),
+    raw: body.raw,
+    parsed: body.parsed,
+  };
+}
+
+function assertPon(pon: string) {
+  if (pon !== VALIDATED_PON)
+    throw new AgentUnavailableError(`PON ${pon} não validada: consultas bloqueadas.`);
 }
 
 export function createAgentClient(baseUrl: string, token: string, caps: Capability[]) {
   const base = normalizeUrl(baseUrl) ?? "";
   return {
-    gponInterface: (pon: string) =>
-      call(
+    gponInterface: async (pon: string) => {
+      assertPon(pon);
+      return call(
         base,
         token,
         caps,
         "gpon.interface.read",
         `/olt/gpon/interface?pon=${encodeURIComponent(pon)}`,
-      ),
-    gponOnus: (pon: string) =>
-      call(base, token, caps, "gpon.onu.read", `/olt/gpon/onu?pon=${encodeURIComponent(pon)}`),
-    cliRead: (command: string) => {
+      );
+    },
+    gponOnus: async (pon: string) => {
+      assertPon(pon);
+      return call(
+        base,
+        token,
+        caps,
+        "gpon.onu.read",
+        `/olt/gpon/onu?pon=${encodeURIComponent(pon)}`,
+      );
+    },
+    cliRead: async (command: string) => {
       if (!(READ_ONLY_COMMANDS as readonly string[]).includes(command))
-        return Promise.reject(new Error("Comando fora da allowlist somente leitura."));
+        throw new Error("Comando fora da allowlist somente leitura.");
       return call(base, token, caps, "cli.read", "/olt/cli/read", {
         method: "POST",
         body: JSON.stringify({ command }),
