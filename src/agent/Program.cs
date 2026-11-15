@@ -123,7 +123,7 @@ app.MapPost("/olt/connection-test", async (IConfiguration configuration, Cancell
 app.MapGet("/olt/gpon/interface", async (string pon, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (!commandsEnabled) return Results.Problem("Consultas CLI estão desabilitadas. Ative DM4615_ENABLE_READ_COMMANDS=true após validar a CLI.", statusCode: 503);
-    if (pon != "1/1/2") return Results.BadRequest(new { error = "Nesta versão, somente a PON 1/1/2 foi validada." });
+    if (!IsSupportedPon(pon)) return Results.BadRequest(new { error = "PON inválida. Informe uma interface física entre 1/1/1 e 1/1/16." });
     return await RunReadCommand(configuration, $"show interface gpon {pon}", cancellationToken);
 });
 
@@ -137,8 +137,8 @@ app.MapGet("/olt/gpon/onu", async (string pon, IConfiguration configuration, Can
 app.MapPost("/olt/cli/read", async (ReadCommandRequest request, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (!commandsEnabled) return Results.Problem("Consultas CLI estão desabilitadas. Ative DM4615_ENABLE_READ_COMMANDS=true após validar a CLI.", statusCode: 503);
-    if (request.Command is not ("show interface gpon 1/1/2" or "show interface gpon 1/1/2 onu"))
-        return Results.BadRequest(new { error = "Comando fora da allowlist de leitura." });
+    if (!IsAllowedReadCommand(request.Command))
+        return Results.BadRequest(new { error = "Comando fora da allowlist dinâmica de leitura GPON." });
     return await RunReadCommand(configuration, request.Command, cancellationToken);
 });
 
@@ -152,6 +152,11 @@ app.MapGet("/capabilities", () => Results.Ok(new
 }));
 
 app.Run();
+
+static bool IsSupportedPon(string pon) => System.Text.RegularExpressions.Regex.IsMatch(pon, @"^1/1/(?:[1-9]|1[0-6])$");
+
+static bool IsAllowedReadCommand(string command) =>
+    System.Text.RegularExpressions.Regex.IsMatch(command, @"^show interface gpon 1/1/(?:[1-9]|1[0-6])(?: onu)?$");
 
 static async Task<IResult> RunReadCommand(IConfiguration configuration, string command, CancellationToken cancellationToken)
 {
