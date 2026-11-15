@@ -59,6 +59,7 @@ function Index() {
   const [active, setActive] = useState<Section>("Visão geral");
   const [mobileNav, setMobileNav] = useState(false);
   const { online, health, demo, setDemo } = useAgent();
+  const scan = usePonScan();
   const agentLabel = online ? "ONLINE" : health ? "OFFLINE" : "DESCONHECIDO";
 
   return (
@@ -144,7 +145,7 @@ function Index() {
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{active}</div>
               <div className="mt-0.5 truncate text-[11px] text-slate-500">
-                {S.olt.vendor} {S.olt.model} • {S.olt.ip}
+                Datacom DM4615 • 192.168.0.25
               </div>
             </div>
           </div>
@@ -171,8 +172,8 @@ function Index() {
             <DemoView section={active} />
           ) : (
             <>
-              {active === "Visão geral" && <Overview go={setActive} />}
-              {active === "GPON/ONUs" && <Gpon />}
+              {active === "Visão geral" && <Overview go={setActive} scan={scan} />}
+              {active === "GPON/ONUs" && <Gpon scan={scan} />}
               {active === "Conexão do agente" && <Connection />}
               {active === "Eventos/diagnóstico" && <Events />}
             </>
@@ -406,7 +407,6 @@ function usePonScan() {
           status: "ok",
           onus: onus ?? [],
           collectedAt: r.collectedAt,
-          ...(onus === null && !r.raw.trim() ? {} : {}),
         };
       } catch (e) {
         return { pon, status: "erro", onus: null, error: e instanceof Error ? e.message : "Falha" };
