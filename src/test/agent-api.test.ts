@@ -70,7 +70,7 @@ describe("agent api", () => {
     const f = vi.fn();
     vi.stubGlobal("fetch", f);
     await expect(
-      createAgentClient(DEFAULT_AGENT_URL, "t", ["gpon.interface.read"]).gponInterface("1/1/1"),
+      createAgentClient(DEFAULT_AGENT_URL, "t", ["gpon.interface.read"]).gponInterface("1/1/17"),
     ).rejects.toThrow();
     expect(f).not.toHaveBeenCalled();
   });
