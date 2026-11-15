@@ -438,7 +438,7 @@ function OnuTable() {
     try {
       const result = await client.gponOnus(VALIDATED_PON);
       const next: Record<string, "Up" | "Down"> = {};
-      const line = /^\\s*1\\/1\\/2\\s+(\\d+)\\s+([A-Z0-9]+)\\s+(Up|Down)\\b/gim;
+      const line = /^\s*1\/1\/2\s+(\d+)\s+([A-Z0-9]+)\s+(Up|Down)\b/gim;
       for (const match of result.raw.matchAll(line)) {
         next[match[2]] = match[3] as "Up" | "Down";
       }
