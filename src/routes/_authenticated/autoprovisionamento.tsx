@@ -122,7 +122,7 @@ function AutoProvisioning() {
           onu_id: savedId,
           serial_number: item.serial,
           olt_id: olt.id,
-          pon_port_id: pon.id,
+          pon_port_id: detectedPonId,
           observed_status: item.state === "Up" ? "online" : "offline",
           observed_at: result.collectedAt,
           raw_data: { onu_number: item.onuNumber, oper_state: item.state, command: result.command, pon: VALIDATED_PON },
