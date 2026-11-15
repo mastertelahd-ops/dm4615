@@ -2,7 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAgent } from "@/lib/agent-context";
-import { VALIDATED_PON } from "@/lib/agent-api";
+import { VALIDATED_PON, onusFrom } from "@/lib/agent-api";
+
+/** Gravação da descoberta no banco desativada nesta etapa (somente leitura). */
+const PERSIST_DISCOVERY = false;
 
 type Customer = { id: string; full_name: string; document_number: string | null };
 type Plan = { id: string; name: string; download_mbps: number; upload_mbps: number; price: number | null };
@@ -59,10 +62,14 @@ function AutoProvisioning() {
     setError("");
     try {
       const result = await client.gponOnus(VALIDATED_PON);
-      const parsed: { onuNumber: number; serial: string; state: "Up" | "Down" }[] = [];
-      const line = /^\s*1\/1\/2\s+(\d+)\s+([A-Z0-9]+)\s+(Up|Down)\b/gim;
-      for (const m of result.raw.matchAll(line)) parsed.push({ onuNumber: Number(m[1]), serial: m[2], state: m[3] as "Up" | "Down" });
+      const parsed = (onusFrom(result, VALIDATED_PON) ?? []).map((o) => ({ onuNumber: o.onuId ?? 0, serial: o.serial, state: /^up$|online/i.test(o.state) ? "Up" as const : "Down" as const }));
       if (!parsed.length) throw new Error("A OLT respondeu, mas nenhuma ONU foi reconhecida no formato esperado. Nenhum status foi alterado.");
+      if (!PERSIST_DISCOVERY) {
+        setCollectedAt(result.collectedAt);
+        setNotice(`Leitura concluída (somente leitura, nada gravado): ${parsed.map((o) => `${o.serial} ${o.state}`).join(", ")}.`);
+        log("ok", "Descoberta GPON", `${parsed.length} ONU(s) lidas em ${VALIDATED_PON} (sem gravação)`);
+        return;
+      }
 
       const { data: olt, error: oltError } = await supabase.from("olt_devices").upsert({
         name: "OLT principal",
@@ -210,7 +217,7 @@ function AutoProvisioning() {
       const { data: userData } = await supabase.auth.getUser();
       const { error: updateError } = await supabase.from("provisioning_requests").update({
         status: decision,
-        approved_by: decision === "approved" ? userData.user?.id : null,
+        approved_by: decision === "approved" ? (userData.user?.id ?? null) : null,
         approved_at: decision === "approved" ? new Date().toISOString() : null,
         approval_note: decision === "approved" ? "Aprovado pelo administrador. Aguardando habilitação técnica do executor OLT." : "Rejeitado pelo administrador.",
       }).eq("id", request.id).eq("status", "pending_approval");
@@ -221,7 +228,7 @@ function AutoProvisioning() {
         entity_type: "provisioning_request",
         entity_id: request.id,
         outcome: "success",
-        details: { serial_number: request.request_payload.serial_number, decision },
+        details: { serial_number: String(request.request_payload["serial_number"] ?? ""), decision },
       });
       setNotice(decision === "approved" ? "Aprovado e registrado. A execução permanece bloqueada até validar os comandos de escrita da DM4615." : "Solicitação rejeitada e registrada.");
       await loadData();
@@ -229,7 +236,7 @@ function AutoProvisioning() {
     finally { setSaving(false); }
   }
 
-  const stateText = (onu: Onu) => String(onu.metadata?.observed_oper_state ?? onu.status).toUpperCase();
+  const stateText = (onu: Onu) => String(onu.metadata?.["observed_oper_state"] ?? onu.status).toUpperCase();
   return <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-8">
     <div className="mx-auto max-w-7xl space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -250,7 +257,7 @@ function AutoProvisioning() {
         <label className="text-xs text-slate-300">PON de destino<select value={targetPonId} onChange={e=>setTargetPonId(e.target.value)} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="">Selecionar PON</option>{pons.map(p=><option key={p.id} value={p.id}>{p.interface_name}</option>)}</select></label>
         <label className="text-xs text-slate-300">Perfil<select value={profile} onChange={e=>setProfile(e.target.value as "bridge"|"router")} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="bridge">Bridge</option><option value="router">Router</option></select></label>
       </div><div className="mt-4 flex flex-wrap gap-2"><button disabled={saving} onClick={()=>void prepareRequest()} className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">{saving ? "Salvando..." : "Enviar para aprovação"}</button><button onClick={()=>setSelected("")} className="rounded-lg border border-white/10 px-4 py-2 text-sm">Cancelar</button></div></section>}
-      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><h2 className="mb-3 font-semibold">Fila de aprovação</h2><div className="space-y-3">{requests.length===0 && <p className="text-sm text-slate-500">Nenhuma solicitação registrada.</p>}{requests.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 p-3"><div><div className="font-mono text-sm">{String(r.request_payload.serial_number ?? r.onu_id)}</div><div className="mt-1 text-xs text-slate-400">Perfil {r.profile_type.toUpperCase()} • Destino {String(r.request_payload.target_pon ?? "não definido")} • {new Date(r.created_at).toLocaleString("pt-BR")}</div><div className="mt-1 text-xs text-slate-400">Status: {r.status}</div></div>{r.status==="pending_approval" && <div className="flex gap-2"><button disabled={saving} onClick={()=>void decideRequest(r,"approved")} className="rounded-md bg-emerald-500/15 px-3 py-2 text-xs text-emerald-300">Aprovar</button><button disabled={saving} onClick={()=>void decideRequest(r,"rejected")} className="rounded-md bg-rose-500/15 px-3 py-2 text-xs text-rose-300">Rejeitar</button></div>}</div>)}</div></section>
+      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><h2 className="mb-3 font-semibold">Fila de aprovação</h2><div className="space-y-3">{requests.length===0 && <p className="text-sm text-slate-500">Nenhuma solicitação registrada.</p>}{requests.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 p-3"><div><div className="font-mono text-sm">{String(r.request_payload["serial_number"] ?? r.onu_id)}</div><div className="mt-1 text-xs text-slate-400">Perfil {r.profile_type.toUpperCase()} • Destino {String(r.request_payload["target_pon"] ?? "não definido")} • {new Date(r.created_at).toLocaleString("pt-BR")}</div><div className="mt-1 text-xs text-slate-400">Status: {r.status}</div></div>{r.status==="pending_approval" && <div className="flex gap-2"><button disabled={saving} onClick={()=>void decideRequest(r,"approved")} className="rounded-md bg-emerald-500/15 px-3 py-2 text-xs text-emerald-300">Aprovar</button><button disabled={saving} onClick={()=>void decideRequest(r,"rejected")} className="rounded-md bg-rose-500/15 px-3 py-2 text-xs text-rose-300">Rejeitar</button></div>}</div>)}</div></section>
       <p className="text-xs text-slate-500">Atualização automática a cada 30 segundos enquanto o agente estiver conectado. As observações são persistidas no banco Lovable Cloud existente.</p>
     </div>
   </main>;
