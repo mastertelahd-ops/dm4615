@@ -340,7 +340,7 @@ function Overview({ go }: { go: (s: Section) => void }) {
 }
 
 function Connection({ log }: { log: (a: string, r: string) => void }) {
-  const { url, setUrl, saveUrl, token, setToken, health, checking, lastCheck, test } = useAgent();
+  const { url, setUrl, saveUrl, token, setToken, health, sshResult, checking, lastCheck, test } = useAgent();
   const [saved, setSaved] = useState(false);
   const run = async () => {
     await test();
@@ -447,6 +447,20 @@ function Connection({ log }: { log: (a: string, r: string) => void }) {
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+          {sshResult && (
+            <div className="mt-4">
+              {sshResult.ok ? (
+                <Notice tone="slate">
+                  <b>SSH conectado e fingerprint verificado.</b> {sshResult.data.host}:{sshResult.data.port}.
+                  Nenhum comando foi executado na OLT.
+                </Notice>
+              ) : (
+                <Notice tone="red">
+                  <b>Falha no handshake SSH.</b> {sshResult.message}
+                </Notice>
+              )}
             </div>
           )}
         </Card>
