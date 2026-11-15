@@ -381,7 +381,6 @@ function CollectView({ c, cap }: { c: ReturnType<typeof useCollect>; cap: Capabi
 /* ---------- seções ---------- */
 function Overview({ go }: { go: (s: Section) => void }) {
   const { online, health, lastCheck } = useAgent();
-  const up = S.onus.filter((o) => (o.status as string) === "Up").length;
   return (
     <>
       <Title
@@ -412,7 +411,7 @@ function Overview({ go }: { go: (s: Section) => void }) {
           <KV k={S.pon.type} v={`${S.pon.id} • ${S.pon.adminState}/${S.pon.operState} (manual)`} />
         </Card>
         <Card title={`ONUs na PON ${S.pon.id}`}>
-          <KV k="Coleta manual" v={`${S.onus.length} (${up} Up, ${S.onus.length - up} Down)`} />
+          <KV k="Status das ONUs" v="Consulte a tabela ao vivo abaixo" />
         </Card>
       </section>
       <OnuTable />
