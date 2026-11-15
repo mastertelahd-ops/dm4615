@@ -37,8 +37,8 @@ export const WRITE_OPERATIONS_ENABLED = false;
 
 export interface HealthInfo {
   status: string;
-  version?: string;
-  agent?: string;
+  version?: string | undefined;
+  agent?: string | undefined;
   capabilities: Capability[];
 }
 export interface CollectResult {
