@@ -28,6 +28,7 @@ function AutoProvisioning() {
   const [planId, setPlanId] = useState("");
   const [targetPonId, setTargetPonId] = useState("");
   const [profile, setProfile] = useState<"bridge" | "router">("bridge");
+  const [operation, setOperation] = useState<"provision" | "deprovision">("provision");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -113,49 +114,46 @@ function AutoProvisioning() {
   const ponName = (id: string | null) => pons.find(p => p.id === id)?.interface_name ?? "PON não cadastrada";
 
   async function prepareRequest() {
-    if (!currentOnu || !customerId || !planId || !targetPonId) {
-      setError("Selecione ONU, cliente, plano e PON de destino.");
+    if (!currentOnu || (operation === "provision" && (!customerId || !planId || !targetPonId))) {
+      setError(operation === "provision" ? "Para provisionar, selecione ONU, cliente, plano e PON de destino." : "Selecione uma ONU cadastrada para solicitar o desprovisionamento.");
       return;
     }
     setSaving(true); setError(""); setNotice("");
     try {
       const payload = {
+        operation,
         serial_number: currentOnu.serial_number,
         source_pon: ponName(currentOnu.pon_port_id),
-        target_pon: ponName(targetPonId),
-        customer_id: customerId,
-        service_plan_id: planId,
+        target_pon: operation === "provision" ? ponName(targetPonId) : ponName(currentOnu.pon_port_id),
+        customer_id: operation === "provision" ? customerId : currentOnu.customer_id,
+        service_plan_id: operation === "provision" ? planId : currentOnu.service_plan_id,
         profile_type: profile,
         preparation_only: true,
-        note: "Comandos de escrita ainda bloqueados no agente; esta solicitação aguarda aprovação e validação técnica.",
+        execution_enabled: false,
+        note: "Solicitação registrada para teste de fluxo. Nenhum comando de escrita ou remoção foi enviado à OLT.",
       };
       const { data: userData } = await supabase.auth.getUser();
       const { error: reqError } = await supabase.from("provisioning_requests").insert({
         onu_id: currentOnu.id,
         requested_by: userData.user?.id ?? null,
-        target_pon_port_id: targetPonId,
+        target_pon_port_id: operation === "provision" ? targetPonId : currentOnu.pon_port_id,
         profile_type: profile,
         status: "pending_approval",
         request_payload: payload,
       });
       if (reqError) throw reqError;
-      const { error: onuError } = await supabase.from("onus").update({
-        customer_id: customerId,
-        service_plan_id: planId,
-        status: "pending_approval",
-        profile_type: profile,
-      }).eq("id", currentOnu.id);
-      if (onuError) throw onuError;
+      // Não alterar o cadastro da ONU ao criar uma solicitação; a operação real segue bloqueada.
       await supabase.from("audit_events").insert({
         actor_user_id: userData.user?.id ?? null,
-        event_type: "provisioning.request_created",
+        event_type: operation === "provision" ? "provisioning.request_created" : "provisioning.deprovision_request_created",
         entity_type: "onu",
         entity_id: currentOnu.id,
         outcome: "success",
         details: payload,
       });
-      setNotice("Solicitação preparada e enviada para aprovação. Nenhum comando foi enviado à OLT.");
+      setNotice(operation === "provision" ? "Solicitação de provisionamento registrada para aprovação/teste. Nenhum comando foi enviado à OLT." : "Solicitação de desprovisionamento registrada para aprovação/teste. A ONU permanece ativa; nenhum comando foi enviado à OLT.");
       setSelected("");
+      setOperation("provision");
       await loadData();
     } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível preparar a solicitação."); }
     finally { setSaving(false); }
@@ -169,18 +167,18 @@ function AutoProvisioning() {
         status: decision,
         approved_by: decision === "approved" ? (userData.user?.id ?? null) : null,
         approved_at: decision === "approved" ? new Date().toISOString() : null,
-        approval_note: decision === "approved" ? "Aprovado pelo administrador. Aguardando habilitação técnica do executor OLT." : "Rejeitado pelo administrador.",
+        approval_note: decision === "approved" ? "Aprovado pelo administrador apenas para o fluxo de teste. Execução na OLT continua bloqueada." : "Rejeitado pelo administrador.",
       }).eq("id", request.id).eq("status", "pending_approval");
       if (updateError) throw updateError;
       await supabase.from("audit_events").insert({
         actor_user_id: userData.user?.id ?? null,
-        event_type: decision === "approved" ? "provisioning.approved" : "provisioning.rejected",
+        event_type: decision === "approved" ? (String(request.request_payload["operation"] ?? "provision") === "deprovision" ? "provisioning.deprovision_approved" : "provisioning.approved") : "provisioning.rejected",
         entity_type: "provisioning_request",
         entity_id: request.id,
         outcome: "success",
         details: { serial_number: String(request.request_payload["serial_number"] ?? ""), decision },
       });
-      setNotice(decision === "approved" ? "Aprovado e registrado. A execução permanece bloqueada até validar os comandos de escrita da DM4615." : "Solicitação rejeitada e registrada.");
+      setNotice(decision === "approved" ? "Aprovação de teste registrada. Nenhum provisionamento ou desprovisionamento foi executado na OLT." : "Solicitação rejeitada e registrada.");
       await loadData();
     } catch (e) { setError(e instanceof Error ? e.message : "Falha ao registrar decisão."); }
     finally { setSaving(false); }
@@ -219,13 +217,22 @@ function AutoProvisioning() {
         <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="text-xs text-slate-400"><tr><th className="p-2">ONU</th><th className="p-2">Serial</th><th className="p-2">Estado OLT</th><th className="p-2">Cliente</th><th className="p-2">Plano</th><th className="p-2">PON</th><th className="p-2"></th></tr></thead><tbody>{onus.map(o => <tr key={o.id} className="border-t border-white/5"><td className="p-2">{o.onu_number ?? "—"}</td><td className="p-2 font-mono">{o.serial_number}</td><td className="p-2"><span className={stateText(o) === "UP" || stateText(o) === "ONLINE" ? "rounded-full bg-emerald-400/10 px-2 py-1 text-xs text-emerald-300" : "rounded-full bg-rose-400/10 px-2 py-1 text-xs text-rose-300"}>{stateText(o)}</span></td><td className="p-2">{customerName(o.customer_id)}</td><td className="p-2">{planName(o.service_plan_id)}</td><td className="p-2">{ponName(o.pon_port_id)}</td><td className="p-2"><button onClick={() => {setSelected(o.id);setCustomerId(o.customer_id ?? "");setPlanId(o.service_plan_id ?? "");setTargetPonId(o.pon_port_id ?? pons[0]?.id ?? "");}} className="rounded-md border border-cyan-300/30 px-3 py-1.5 text-xs text-cyan-200">Preparar</button></td></tr>)}</tbody></table></div>
         <p className="mt-3 text-xs text-slate-500">Esta tabela mostra apenas registros já existentes no banco; a descoberta ao vivo acima é independente e não cria nem atualiza esses cadastros.</p>
       </section>
-      {currentOnu && <section className="rounded-xl border border-cyan-300/20 bg-cyan-300/[0.04] p-4"><h2 className="font-semibold">Preparar solicitação • {currentOnu.serial_number}</h2><div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-        <label className="text-xs text-slate-300">Cliente<select value={customerId} onChange={e=>setCustomerId(e.target.value)} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="">Selecionar cliente</option>{customers.map(c=><option key={c.id} value={c.id}>{c.full_name}{c.document_number ? " • "+c.document_number : ""}</option>)}</select></label>
-        <label className="text-xs text-slate-300">Plano<select value={planId} onChange={e=>setPlanId(e.target.value)} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="">Selecionar plano</option>{plans.map(p=><option key={p.id} value={p.id}>{p.name} • {p.download_mbps}/{p.upload_mbps} Mbps</option>)}</select></label>
-        <label className="text-xs text-slate-300">PON de destino<select value={targetPonId} onChange={e=>setTargetPonId(e.target.value)} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="">Selecionar PON</option>{pons.map(p=><option key={p.id} value={p.id}>{p.interface_name}</option>)}</select></label>
-        <label className="text-xs text-slate-300">Perfil<select value={profile} onChange={e=>setProfile(e.target.value as "bridge"|"router")} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="bridge">Bridge</option><option value="router">Router</option></select></label>
-      </div><div className="mt-4 flex flex-wrap gap-2"><button disabled={saving} onClick={()=>void prepareRequest()} className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">{saving ? "Salvando..." : "Enviar para aprovação"}</button><button onClick={()=>setSelected("")} className="rounded-lg border border-white/10 px-4 py-2 text-sm">Cancelar</button></div></section>}
-      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><h2 className="mb-3 font-semibold">Fila de aprovação</h2><div className="space-y-3">{requests.length===0 && <p className="text-sm text-slate-500">Nenhuma solicitação registrada.</p>}{requests.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 p-3"><div><div className="font-mono text-sm">{String(r.request_payload["serial_number"] ?? r.onu_id)}</div><div className="mt-1 text-xs text-slate-400">Perfil {r.profile_type.toUpperCase()} • Destino {String(r.request_payload["target_pon"] ?? "não definido")} • {new Date(r.created_at).toLocaleString("pt-BR")}</div><div className="mt-1 text-xs text-slate-400">Status: {r.status}</div></div>{r.status==="pending_approval" && <div className="flex gap-2"><button disabled={saving} onClick={()=>void decideRequest(r,"approved")} className="rounded-md bg-emerald-500/15 px-3 py-2 text-xs text-emerald-300">Aprovar</button><button disabled={saving} onClick={()=>void decideRequest(r,"rejected")} className="rounded-md bg-rose-500/15 px-3 py-2 text-xs text-rose-300">Rejeitar</button></div>}</div>)}</div></section>
+      {currentOnu && <section className="rounded-xl border border-cyan-300/20 bg-cyan-300/[0.04] p-4"><h2 className="font-semibold">Preparar operação de teste • {currentOnu.serial_number}</h2>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={() => setOperation("provision")} className={operation === "provision" ? "rounded-md bg-cyan-400 px-3 py-2 text-xs font-semibold text-slate-950" : "rounded-md border border-white/10 px-3 py-2 text-xs"}>Provisionar (solicitação)</button>
+          <button type="button" onClick={() => setOperation("deprovision")} className={operation === "deprovision" ? "rounded-md bg-amber-300 px-3 py-2 text-xs font-semibold text-slate-950" : "rounded-md border border-white/10 px-3 py-2 text-xs"}>Desprovisionar (solicitação)</button>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          {operation === "provision" && <>
+            <label className="text-xs text-slate-300">Cliente<select value={customerId} onChange={e=>setCustomerId(e.target.value)} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="">Selecionar cliente</option>{customers.map(c=><option key={c.id} value={c.id}>{c.full_name}{c.document_number ? " • "+c.document_number : ""}</option>)}</select></label>
+            <label className="text-xs text-slate-300">Plano<select value={planId} onChange={e=>setPlanId(e.target.value)} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="">Selecionar plano</option>{plans.map(p=><option key={p.id} value={p.id}>{p.name} • {p.download_mbps}/{p.upload_mbps} Mbps</option>)}</select></label>
+            <label className="text-xs text-slate-300">PON de destino<select value={targetPonId} onChange={e=>setTargetPonId(e.target.value)} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="">Selecionar PON</option>{pons.map(p=><option key={p.id} value={p.id}>{p.interface_name}</option>)}</select></label>
+            <label className="text-xs text-slate-300">Perfil<select value={profile} onChange={e=>setProfile(e.target.value as "bridge"|"router")} className="mt-1 w-full rounded-md border border-white/10 bg-slate-900 p-2 text-sm"><option value="bridge">Bridge</option><option value="router">Router</option></select></label>
+          </>}
+        </div>
+        <p className="mt-3 text-xs text-amber-200">Modo teste: a solicitação e a aprovação são registradas, mas nenhum comando é enviado à OLT e o cadastro da ONU não é alterado.</p>
+        <div className="mt-4 flex flex-wrap gap-2"><button disabled={saving} onClick={()=>void prepareRequest()} className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">{saving ? "Salvando..." : operation === "provision" ? "Solicitar provisionamento" : "Solicitar desprovisionamento"}</button><button onClick={()=>setSelected("")} className="rounded-lg border border-white/10 px-4 py-2 text-sm">Cancelar</button></div></section>}
+      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><h2 className="mb-3 font-semibold">Fila de aprovação</h2><div className="space-y-3">{requests.length===0 && <p className="text-sm text-slate-500">Nenhuma solicitação registrada.</p>}{requests.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 p-3"><div><div className="font-mono text-sm">{String(r.request_payload["serial_number"] ?? r.onu_id)}</div><div className="mt-1 text-xs text-slate-400">{String(r.request_payload["operation"] ?? "provision") === "deprovision" ? "DESPROVISIONAMENTO" : "PROVISIONAMENTO"} • Perfil {r.profile_type.toUpperCase()} • Destino {String(r.request_payload["target_pon"] ?? "não definido")} • {new Date(r.created_at).toLocaleString("pt-BR")}</div><div className="mt-1 text-xs text-slate-400">Status: {r.status}</div></div>{r.status==="pending_approval" && <div className="flex gap-2"><button disabled={saving} onClick={()=>void decideRequest(r,"approved")} className="rounded-md bg-emerald-500/15 px-3 py-2 text-xs text-emerald-300">Aprovar</button><button disabled={saving} onClick={()=>void decideRequest(r,"rejected")} className="rounded-md bg-rose-500/15 px-3 py-2 text-xs text-rose-300">Rejeitar</button></div>}</div>)}</div></section>
       <p className="text-xs text-slate-500">A descoberta GPON só ocorre ao clicar em Buscar agora. A coleta é somente leitura e não grava dados; solicitações e decisões administrativas são ações separadas.</p>
     </div>
   </main>;

@@ -180,34 +180,58 @@ export type Database = {
       olt_devices: {
         Row: {
           created_at: string
+          credential_ref: string | null
           enabled: boolean
           id: string
+          is_selected: boolean
+          last_error: string | null
+          last_latency_ms: number | null
+          last_status: string | null
+          last_test_at: string | null
           management_host: string | null
           management_port: number
           model: string
           name: string
+          ssh_username: string | null
+          timeout_seconds: number
           updated_at: string
           vendor: string
         }
         Insert: {
           created_at?: string
+          credential_ref?: string | null
           enabled?: boolean
           id?: string
+          is_selected?: boolean
+          last_error?: string | null
+          last_latency_ms?: number | null
+          last_status?: string | null
+          last_test_at?: string | null
           management_host?: string | null
           management_port?: number
           model?: string
           name: string
+          ssh_username?: string | null
+          timeout_seconds?: number
           updated_at?: string
           vendor?: string
         }
         Update: {
           created_at?: string
+          credential_ref?: string | null
           enabled?: boolean
           id?: string
+          is_selected?: boolean
+          last_error?: string | null
+          last_latency_ms?: number | null
+          last_status?: string | null
+          last_test_at?: string | null
           management_host?: string | null
           management_port?: number
           model?: string
           name?: string
+          ssh_username?: string | null
+          timeout_seconds?: number
           updated_at?: string
           vendor?: string
         }
@@ -574,12 +598,31 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       is_active_admin: { Args: never; Returns: boolean }
+      select_active_olt: { Args: { _olt_id: string }; Returns: undefined }
     }
     Enums: {
       [_ in never]: never

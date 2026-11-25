@@ -7,6 +7,7 @@ import {
   createAgentClient,
   isLoopback,
   normalizeUrl,
+  parseInterface,
   testOltConnection,
 } from "@/lib/agent-api";
 import { DEMO_DATA, DEMO_LABEL } from "@/lib/demo-data";
@@ -109,7 +110,7 @@ describe("agent api", () => {
   });
 });
 
-import { PON_LIST, onusFrom, parseInterface, parseOnus, READ_ONLY_COMMANDS } from "@/lib/agent-api";
+import { PON_LIST, onusFrom, parseOnus, READ_ONLY_COMMANDS } from "@/lib/agent-api";
 
 describe("16 PONs e parsed", () => {
   it("aceita 1/1/16 e bloqueia 1/1/17 e 2/1/1 sem fetch", async () => {
@@ -153,7 +154,6 @@ describe("16 PONs e parsed", () => {
     expect(READ_ONLY_COMMANDS.every((c) => c.startsWith("show interface gpon 1/1/"))).toBe(true);
   });
 });
-
 
 describe("interface GPON estruturada", () => {
   it("interpreta a resposta real da PON 1/1/2", () => {

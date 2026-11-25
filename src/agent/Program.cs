@@ -29,7 +29,7 @@ builder.Services.Configure<JsonOptions>(options =>
 
 var app = builder.Build();
 var allowedOrigins = (Environment.GetEnvironmentVariable("DM4615_AGENT_ALLOWED_ORIGINS")
-    ?? "https://dm4615.lovable.app;https://5048035b-5812-5d98-a874-ee5a764cc22d.lovableproject.com;https://id-preview--5048035b-5812-5d98-a874-ee5a764cc22d.lovable.app;http://localhost:3000;http://localhost:5173")
+    ?? "https://dm4615.lovable.app;https://id-preview--5048035b-5812-5d98-a874-ee5a764cc22d.lovable.app;https://5048035b-5812-5d98-a874-ee5a764cc22d.lovableproject.com;http://localhost:3000;http://localhost:5173")
     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 var commandsEnabled = string.Equals(
     Environment.GetEnvironmentVariable("DM4615_ENABLE_READ_COMMANDS"), "true",
@@ -123,22 +123,22 @@ app.MapPost("/olt/connection-test", async (IConfiguration configuration, Cancell
 app.MapGet("/olt/gpon/interface", async (string pon, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (!commandsEnabled) return Results.Problem("Consultas CLI estão desabilitadas. Ative DM4615_ENABLE_READ_COMMANDS=true após validar a CLI.", statusCode: 503);
-    if (!IsValidPon(pon)) return Results.BadRequest(new { error = "PON fora do intervalo 1/1/1 a 1/1/16." });
+    if (!IsSupportedPon(pon)) return Results.BadRequest(new { error = "PON inválida. Informe uma interface física entre 1/1/1 e 1/1/16." });
     return await RunReadCommand(configuration, $"show interface gpon {pon}", cancellationToken);
 });
 
 app.MapGet("/olt/gpon/onu", async (string pon, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (!commandsEnabled) return Results.Problem("Consultas CLI estão desabilitadas. Ative DM4615_ENABLE_READ_COMMANDS=true após validar a CLI.", statusCode: 503);
-    if (!IsValidPon(pon)) return Results.BadRequest(new { error = "PON fora do intervalo 1/1/1 a 1/1/16." });
+    if (!IsSupportedPon(pon)) return Results.BadRequest(new { error = "PON inválida. Informe uma interface física entre 1/1/1 e 1/1/16." });
     return await RunReadCommand(configuration, $"show interface gpon {pon} onu", cancellationToken);
 });
 
 app.MapPost("/olt/cli/read", async (ReadCommandRequest request, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (!commandsEnabled) return Results.Problem("Consultas CLI estão desabilitadas. Ative DM4615_ENABLE_READ_COMMANDS=true após validar a CLI.", statusCode: 503);
-    if (!IsAllowedCommand(request.Command))
-        return Results.BadRequest(new { error = "Comando fora da allowlist de leitura." });
+    if (!IsAllowedReadCommand(request.Command))
+        return Results.BadRequest(new { error = "Comando fora da allowlist dinâmica de leitura GPON." });
     return await RunReadCommand(configuration, request.Command, cancellationToken);
 });
 
@@ -153,18 +153,10 @@ app.MapGet("/capabilities", () => Results.Ok(new
 
 app.Run();
 
-static bool IsValidPon(string pon) =>
-    pon.StartsWith("1/1/", StringComparison.Ordinal) &&
-    int.TryParse(pon[4..], out var n) && n is >= 1 and <= 16 && pon == $"1/1/{n}";
+static bool IsSupportedPon(string pon) => System.Text.RegularExpressions.Regex.IsMatch(pon, @"^1/1/(?:[1-9]|1[0-6])$");
 
-static bool IsAllowedCommand(string command)
-{
-    const string prefix = "show interface gpon ";
-    if (!command.StartsWith(prefix, StringComparison.Ordinal)) return false;
-    var rest = command[prefix.Length..];
-    if (rest.EndsWith(" onu", StringComparison.Ordinal)) rest = rest[..^4];
-    return IsValidPon(rest);
-}
+static bool IsAllowedReadCommand(string command) =>
+    System.Text.RegularExpressions.Regex.IsMatch(command, @"^show interface gpon 1/1/(?:[1-9]|1[0-6])(?: onu)?$");
 
 static async Task<IResult> RunReadCommand(IConfiguration configuration, string command, CancellationToken cancellationToken)
 {
