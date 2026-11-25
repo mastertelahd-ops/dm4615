@@ -1,2 +1,6 @@
 - [x] Login por e-mail/senha
 - [x] Botão Entrar com Google
+- [ ] Cadastro persistente de OLTs e seleção ativa, sem credenciais SSH no navegador.
+- [ ] Agente local seguro e driver Datacom com operações nomeadas e parsers.
+- [ ] Inventário, pré-validação individual e bloqueios de provisionamento.
+- [ ] Testes, diagnóstico, documentação, verificação de GitHub e publicação condicionada.
