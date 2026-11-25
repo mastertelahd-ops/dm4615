@@ -1,68 +1,60 @@
-# Agente local Windows — DM4615
+# Agente Windows DM4615 — integração inicial
 
-Fundação inicial do agente .NET 8. O projeto não altera banco de dados e não executa comandos de configuração na OLT.
+O agente expõe uma API local em `127.0.0.1:17861` e faz SSH para a OLT `192.168.0.25:22`. Não escuta em interfaces públicas.
 
-## Configuração
+## Requisitos
 
-- Windows 10/11 x64.
-- .NET 8 SDK para execução a partir do código.
-- IP MGMT padrão documentado: 192.168.0.25 (confirme se esse é realmente o IP da OLT).
-- SSH TCP/22.
-- Credenciais e fingerprint devem ser configurados somente no ambiente Windows.
+- Windows 10/11 x64
+- .NET 8 SDK
+- Acesso TCP da máquina Windows à OLT na porta SSH 22
+- Usuário/senha SSH da OLT e fingerprint SHA-256 confirmada por canal confiável
+- Token aleatório forte para proteger as rotas de consulta
 
-Defina as variáveis no PowerShell antes de iniciar:
+## Configurar em PowerShell
+
+Defina os valores somente na sessão local do PowerShell. Nunca os coloque no Git, no painel web, em prints ou no chat:
 
 ```powershell
 $env:DM4615_SSH_HOST = "192.168.0.25"
 $env:DM4615_SSH_PORT = "22"
 $env:DM4615_SSH_USERNAME = "SEU_USUARIO"
 $env:DM4615_SSH_PASSWORD = "SUA_SENHA"
-$env:DM4615_SSH_HOSTKEY_SHA256 = "FINGERPRINT_SHA256_DO_PUTTY"
-$env:DM4615_AGENT_TOKEN = "GERE_UM_TOKEN_ALEATORIO_FORTE"
+$env:DM4615_SSH_HOSTKEY_SHA256 = "FINGERPRINT_SHA256_CONFIRMADA"
+$env:DM4615_AGENT_TOKEN = "TOKEN_ALEATORIO_FORTE"
+$env:DM4615_AGENT_ALLOWED_ORIGINS = "https://dm4615.lovable.app;https://id-preview--5048035b-5812-5d98-a874-ee5a764cc22d.lovable.app;https://5048035b-5812-5d98-a874-ee5a764cc22d.lovableproject.com"
 ```
 
-Não salve valores reais em arquivos versionados, prints, tickets ou logs. A configuração definitiva deverá migrar para Windows Credential Manager/DPAPI.
+Por segurança, comandos de leitura iniciam desabilitados. Primeiro execute o agente e teste o handshake SSH; depois valide as consultas manualmente no equipamento e só então habilite:
 
-## Executar pelo código
+```powershell
+$env:DM4615_ENABLE_READ_COMMANDS = "true"
+```
+
+## Executar
+
+Na raiz do repositório:
 
 ```powershell
 dotnet restore .\src\agent\Dm4615.Agent.csproj
 dotnet run --project .\src\agent\Dm4615.Agent.csproj
 ```
 
-A API escuta em http://127.0.0.1:17861. Os endpoints protegidos exigem X-Agent-Token. O health básico é público e não retorna dados sensíveis.
+## API
 
-## Empacotar para Windows
+- `GET /health`: status público, versão e capabilities disponíveis. Use `http://127.0.0.1:17861/health` para verificar; a raiz `/` não é uma rota pública e pode responder `unauthorized`.
+- `POST /olt/connection-test`: rota protegida; valida handshake SSH e fingerprint sem executar comandos na OLT.
+- `GET /olt/gpon/interface?pon=1/1/N`: somente leitura; N entre 1 e 16; executa `show interface gpon 1/1/N`.
+- `GET /olt/gpon/onu?pon=1/1/N`: somente leitura; N entre 1 e 16; executa `show interface gpon 1/1/N onu`.
+- `POST /olt/cli/read`: permite somente comandos `show interface gpon 1/1/N` e `show interface gpon 1/1/N onu`, com N entre 1 e 16.
 
-Na raiz do repositório:
+Rotas protegidas aceitam `Authorization: Bearer <token>`. A API inclui CORS e Private Network Access para as origens listadas em `DM4615_AGENT_ALLOWED_ORIGINS`. Não use curingas.
 
-```powershell
-.\scripts\publish-agent-windows.ps1
-```
+A API aceita consultas de leitura para as 16 PONs. A coleta anterior confirmou a interface das 16 portas e listou ONUs na PON 1/1/2; valide no equipamento a resposta de `show interface gpon 1/1/N onu` em cada porta antes de considerar o inventário completo. `show onu` isolado não é um comando válido nesse firmware. Nenhum comando de configuração, provisionamento, reboot ou limpeza é aceito.
 
-Gera o executável portátil self-contained em artifacts/win-x64.
+## Limitações importantes
 
-Para gerar também o instalador, instale Inno Setup 6 e execute:
-
-```powershell
-.\scripts\publish-agent-windows.ps1 -BuildInstaller
-```
-
-O instalador é uma embalagem inicial do agente e da documentação; não configura VPN, não abre firewall e não instala serviço automático. O modo serviço será concluído após implementar armazenamento de segredos com DPAPI/Windows Credential Manager.
-
-Consulte docs/windows-agent-vpn.md para limitações e requisitos de VPN. Os artefatos binários são gerados localmente e não devem ser versionados.
-
-## Testes da API local
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:17861/health
-Invoke-RestMethod -Method Post http://127.0.0.1:17861/olt/connection-test -Headers @{ "X-Agent-Token" = $env:DM4615_AGENT_TOKEN }
-```
-
-O endpoint de teste faz apenas o handshake SSH. Nenhum comando CLI é enviado. A host key precisa corresponder ao fingerprint SHA-256 configurado; sem fingerprint, a conexão é recusada.
-
-## Validação da CLI
-
-As consultas reais compartilhadas pelo operador estão em docs/device-cli-validation.md. O agente ainda não executa comandos de leitura: o adaptador CLI depende de tratamento correto do paginador --More--, do prompt e dos limites de saída.
-
-Nenhuma operação de configuração, limpeza ou reboot será liberada nesta etapa.
+- As consultas usam SSH exec via SSH.NET. É necessário validar no equipamento se o firmware permite esse canal; se a OLT exigir shell interativo/paginador, o adaptador deverá ser ajustado antes de ativar comandos.
+- O painel usa as capabilities retornadas por `/health` e não chama endpoints que não estejam anunciados.
+- Não há leitura de potência RX/TX por ONU, distância ou tráfego individual nesta entrega.
+- Não instalar como serviço automático até implementar armazenamento seguro de credenciais com DPAPI/Windows Credential Manager.
+- Não expor API com Tailscale Serve/Funnel nem abrir portas públicas. Acesso remoto exige autenticação de identidade e autorização adicionais.

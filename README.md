@@ -1,36 +1,59 @@
-# DM4615
+# DM4615 — Painel de OLT (somente leitura)
 
-This project was built with [Lovable](https://lovable.dev).
+Painel web para a OLT Datacom DM4615 (192.168.0.25) que conversa com um **agente local Windows**. O navegador nunca recebe senha SSH: quem acessa a OLT é o agente.
 
-## Build with Lovable
+## Conectar o agente
+1. Instale e rode o agente na mesma máquina (padrão `http://127.0.0.1:17861`).
+2. No painel, abra **Conexão do agente**, confira a URL e informe o token do agente.
+   - A URL pode ser salva no navegador; o **token fica só em memória** (não vai para localStorage, URL, logs ou banco).
+3. Clique em **Testar conexão** (`GET /health`).
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/5048035b-5812-5d98-a874-ee5a764cc22d).
+O agente deve responder CORS para a origem do painel (`Access-Control-Allow-Origin`, `Access-Control-Allow-Headers: Authorization, Content-Type`) e, para Chrome, `Access-Control-Allow-Private-Network: true` no preflight.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and these changes sync back into Lovable.
+## Contrato que o agente precisa implementar
+Todas as rotas exceto `/health` recebem `Authorization: Bearer <token>`.
 
-## Development
+| Rota | Capability | Comando na OLT |
+|---|---|---|
+| `GET /health` (público, sem token) → `{ status, version?, agent?, capabilities: string[] }` | — | — |
+| `POST /olt/connection-test` (token) | — | handshake SSH (não habilita CLI) |
+| `GET /olt/gpon/interface?pon=1/1/N` (N = 1..16) | `gpon.interface.read` | `show interface gpon 1/1/N` |
+| `GET /olt/gpon/onu?pon=1/1/N` (N = 1..16) | `gpon.onu.read` | `show interface gpon 1/1/N onu` |
+| `POST /olt/cli/read` body `{ command }` | `cli.read` | apenas allowlist de leitura |
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Resposta das consultas: `{ command, collectedAt (ISO), raw, parsed? }`.
+O painel só chama uma rota se `/health` listar a capability; caso contrário mostra "consulta não implementada". Obs.: `show onu` sozinho não existe no DM4615.
 
+## Bloqueios e dados
+Escrita, provisionamento, configuração e reboot na OLT estão bloqueados nesta versão. O projeto usa o banco Lovable Cloud existente para cadastros e fila administrativa; a descoberta GPON descrita abaixo é somente leitura e não grava nem atualiza tabelas.
+
+## Desenvolvimento
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+bun install && bun run dev
+bun run test && bun run lint && bun run build
 ```
 
-## DM4615 Windows agent (draft)
+## Modo demonstração
+Ativado no menu lateral. Exibe somente dados fictícios marcados "SIMULAÇÃO — NÃO SÃO DADOS DA OLT" e não chama o agente.
 
-The .NET 8 Windows agent is developed on branch `feat/dm4615-windows-agent` and reviewed in PR #3. It is not production-ready, installed, or deployed.
+## Atualização
+A varredura geral das 16 PONs é manual e iniciada pelo usuário. As consultas detalhadas de interface, ONUs e terminal também são acionadas por clique; não há coleta automática em segundo plano.
 
-- SSH MGMT handshake with strict SHA-256 host-key verification; no CLI commands run.
-- Current local API listens only on 127.0.0.1:17861 and requires an agent token (except basic health).
-- Windows self-contained portable build and Inno Setup installer definitions are included.
-- Recommended VPN: Tailscale. A read-only connectivity diagnostic is included.
-- Remote panel access is not enabled until application-level identity and authorization are implemented; do not expose the agent API with Tailscale Serve yet.
-- No OLT configuration, database schema, migrations, or data are modified.
+## Agente Windows — integração GPON de leitura
 
-Build and VPN instructions: [docs/windows-agent-vpn.md](docs/windows-agent-vpn.md).
-See also [docs/architecture.md](docs/architecture.md), [docs/device-cli-validation.md](docs/device-cli-validation.md), and [src/agent/README.md](src/agent/README.md).
+O agente .NET 8 está em `src/agent`. Ele escuta somente em `127.0.0.1:17861`, valida token Bearer e fingerprint SSH SHA-256 fixada, e permite consultas somente de leitura às PONs `1/1/1` a `1/1/16`.
+
+Consulte [src/agent/README.md](src/agent/README.md) para configuração local. Credenciais devem permanecer em variáveis de ambiente no Windows; nunca as grave no Git. As consultas CLI só são anunciadas quando `DM4615_ENABLE_READ_COMMANDS=true`. Escrita, provisionamento e reboot permanecem bloqueados.
+
+O agente libera `/health` e a resposta vazia `/favicon.ico` sem autenticação; todas as rotas operacionais exigem token. A origem CORS deve estar na allowlist exata. Não exponha o serviço fora do loopback.
+
+## Integração com o agente Windows (16 PONs)
+- O painel consulta manualmente 1/1/1 a 1/1/16 somente quando o usuário clica em “Consultar 16 PONs” ou “Buscar agora”. A concorrência máxima é 4 PONs por vez. Para cada porta, consulta interface e lista de ONUs e usa `parsed` do agente. Não há varredura automática nem gravação durante a descoberta.
+- Origens CORS que o agente deve permitir: preview, publicado e `https://5048035b-5812-5d98-a874-ee5a764cc22d.lovableproject.com` (editor). O agente precisa responder `Access-Control-Allow-Private-Network: true`. No Chrome e no Edge, aceite o pedido de "acesso à rede local". Firefox e Safari podem bloquear chamadas a `http://127.0.0.1` a partir de HTTPS.
+- Erros `problem+json` do agente (`detail`) são exibidos ao usuário.
+- A descoberta em Autoprovisionamento também é manual e **somente leitura**: consulta as 16 PONs, mantém os resultados em memória e não executa `insert`, `update` ou `upsert` durante a coleta. As ações de solicitação/aprovação são fluxos administrativos separados e não executam comandos na OLT.
+- `agent/app.py` é legado: o contrato atual é o agente .NET em `src/agent/`.
+
+
+## Fluxo de teste provisionar/desprovisionar
+- Na tela Autoprovisionamento, a partir de uma ONU já cadastrada, é possível criar solicitações de teste para provisionar ou desprovisionar. A solicitação e a aprovação são auditadas, mas `execution_enabled=false`: nenhum comando é executado na OLT e o registro da ONU não é alterado. A execução real depende de validar comandos/modelos na DM4615 e habilitar um executor protegido.

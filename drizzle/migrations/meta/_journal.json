@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1795580404960,
+      "tag": "0000_olt_management_safe_metadata_and_roles",
+      "breakpoints": true
+    }
+  ]
+}
